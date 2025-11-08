@@ -150,21 +150,42 @@ export async function injectHelperScript(tab: Tab): Promise<boolean> {
         
         findElement: function(selector) {
           try {
-            let element = document.querySelector(selector);
-            if (element) return element;
+            // Try CSS selector first, but handle invalid selectors gracefully
+            try {
+              let element = document.querySelector(selector);
+              if (element) return element;
+            } catch (selectorError) {
+              // Invalid CSS selector (e.g., :contains() is not valid), try fallback methods
+              console.debug('Invalid CSS selector, trying fallback methods:', selector);
+            }
             
             if (selector.startsWith('#')) {
-              element = document.getElementById(selector.substring(1));
+              const element = document.getElementById(selector.substring(1));
               if (element) return element;
             }
             
-            const xpath = \`//\*[contains(text(), '\${selector}')]\`;
-            const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-            element = result.singleNodeValue;
-            if (element) return element;
+            // Try XPath text search
+            try {
+              const xpath = \`//\*[contains(text(), '\${selector.replace(/'/g, "''")}')]\`;
+              const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+              const element = result.singleNodeValue;
+              if (element) return element;
+            } catch (xpathError) {
+              // XPath failed, continue
+            }
             
-            element = document.querySelector(\`[\${selector}]\`);
-            if (element) return element;
+            // Try attribute selector (with error handling)
+            try {
+              const element = document.querySelector(\`[\${selector}]\`);
+              if (element) return element;
+            } catch (e) {
+              // Invalid selector, continue
+            }
+            
+            // Try text-based search on buttons
+            const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
+            const btn = buttons.find(b => b.textContent && b.textContent.toLowerCase().includes(selector.toLowerCase()));
+            if (btn) return btn;
             
             return null;
           } catch (error) {
@@ -335,8 +356,19 @@ export async function injectHelperScript(tab: Tab): Promise<boolean> {
             if (!config.selector) continue;
             
             if (config.multiple) {
-              const elements = document.querySelectorAll(config.selector);
-              results[key] = Array.from(elements).map(el => {
+              // Try querySelectorAll, but handle invalid selectors gracefully
+              let elements = [];
+              try {
+                elements = Array.from(document.querySelectorAll(config.selector));
+              } catch (selectorError) {
+                // Invalid CSS selector, try using findElement in a loop
+                console.debug('Invalid CSS selector for extractData, trying fallback:', config.selector);
+                // For multiple elements, we can't easily use findElement, so return empty array
+                results[key] = [];
+                continue;
+              }
+              
+              results[key] = elements.map(el => {
                 if (config.type === 'text') return el.textContent?.trim();
                 if (config.type === 'url') return el.href;
                 if (config.type === 'image') return el.src;

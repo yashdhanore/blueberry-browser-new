@@ -22,7 +22,7 @@ export class EventManager {
       actionDelay: 1000,
       defaultTimeout: 30000,
       captureScreenshots: true,
-      llmModel: process.env.LLM_MODEL || "gpt-4o",
+      llmModel: process.env.LLM_MODEL || "gpt-5-mini",
       llmTemperature: 0.7,
     });
 

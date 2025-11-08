@@ -36,7 +36,7 @@ export class AgentPlanner {
     const apiKey = this.getApiKey();
     if (!apiKey) return null;
 
-    const modelName = process.env.LLM_MODEL || "gpt-4o";
+    const modelName = process.env.LLM_MODEL || "gpt-5-mini";
 
     try {
       if (this.provider === "anthropic") {
@@ -92,7 +92,30 @@ export class AgentPlanner {
         fullResponse += chunk;
       }
 
+      // Log the raw LLM response for debugging
+      console.log("🤖 Raw LLM Response:");
+      console.log("=".repeat(80));
+      console.log(fullResponse);
+      console.log("=".repeat(80));
+
       const planningResponse = this.parseResponse(fullResponse);
+
+      // Log the parsed response
+      console.log("📋 Parsed Planning Response:");
+      console.log(`   Reasoning: ${planningResponse.reasoning}`);
+      console.log(`   Goal Achieved: ${planningResponse.goalAchieved}`);
+      console.log(`   Confidence: ${planningResponse.confidence}`);
+      if (planningResponse.action) {
+        console.log(`   Action Type: ${planningResponse.action.type}`);
+        console.log(
+          `   Action Parameters: ${JSON.stringify(planningResponse.action.parameters, null, 2)}`
+        );
+        console.log(
+          `   Action Reasoning: ${planningResponse.action.reasoning || "N/A"}`
+        );
+      } else {
+        console.log(`   Action: null (goal achieved or no action)`);
+      }
 
       return planningResponse;
     } catch (error) {
@@ -135,13 +158,17 @@ IMPORTANT RULES:
 1. You can see a screenshot of the current page - use it to understand the visual layout
 2. You also get simplified DOM and page text - use them to find exact selectors
 3. For selectors, prefer IDs and classes, but you can also use text content (e.g., "Sign In button")
-4. Take small, deliberate steps - don't try to do too much at once
-5. After navigation actions, you may need to wait for the page to load
-6. If you can't find an element, try scrolling first
-7. Before extracting data, make sure you can see all the data you need
-8. Be patient - some actions take time
-9. If something fails repeatedly, try a different approach
-10. Your confidence score should reflect how certain you are the action will succeed
+4. CRITICAL: Do NOT use jQuery-style selectors like :contains() - these are NOT valid CSS selectors
+   - Use standard CSS selectors: #id, .class, tag.class, [attribute="value"]
+   - For text-based selection, just use the text directly (e.g., "Sign In button" instead of "button:contains('Sign In')")
+   - The system will automatically search for elements by text if CSS selector fails
+5. Take small, deliberate steps - don't try to do too much at once
+6. After navigation actions, you may need to wait for the page to load
+7. If you can't find an element, try scrolling first
+8. Before extracting data, make sure you can see all the data you need
+9. Be patient - some actions take time
+10. If something fails repeatedly, try a different approach
+11. Your confidence score should reflect how certain you are the action will succeed
 
 EXAMPLES:
 
@@ -332,8 +359,17 @@ RESPOND ONLY WITH THE JSON OBJECT. DO NOT include any markdown formatting, code 
         reasoning: parsed.reasoning,
       };
     } catch (error) {
-      console.error("Error parsing LLM response:", error);
+      console.error("❌ Error parsing LLM response:", error);
       console.error("Raw response:", response);
+      console.error("Response length:", response.length);
+      console.error(
+        "Response preview (first 500 chars):",
+        response.substring(0, 500)
+      );
+      console.error(
+        "Response preview (last 500 chars):",
+        response.substring(Math.max(0, response.length - 500))
+      );
 
       return {
         action: null,

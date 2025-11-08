@@ -289,7 +289,7 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   actionDelay: 1000,
   defaultTimeout: 30000,
   captureScreenshots: true,
-  llmModel: "gpt-4o",
+  llmModel: "gpt-5-mini",
   llmTemperature: 0.7,
 };
 

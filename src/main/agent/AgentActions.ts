@@ -202,14 +202,31 @@ export async function ensureHelperScript(tab: Tab): Promise<boolean> {
         
         window.__agentHelpers = {
           findElement: function(selector) {
-            // Try CSS selector first
-            let el = document.querySelector(selector);
-            if (el) return el;
+            // Try CSS selector first, but handle invalid selectors gracefully
+            try {
+              let el = document.querySelector(selector);
+              if (el) return el;
+            } catch (selectorError) {
+              // Invalid CSS selector (e.g., :contains() is not valid), try fallback methods
+              console.debug('Invalid CSS selector, trying fallback methods:', selector);
+            }
             
-            // Try text search
-            const xpath = \`//\*[contains(text(), '\${selector}')]\`;
-            const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
-            return result.singleNodeValue;
+            // Try text search with XPath
+            try {
+              const xpath = \`//\*[contains(text(), '\${selector.replace(/'/g, "''")}')]\`;
+              const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+              const el = result.singleNodeValue;
+              if (el) return el;
+            } catch (xpathError) {
+              // XPath failed, continue
+            }
+            
+            // Try text-based search on buttons
+            const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
+            const btn = buttons.find(b => b.textContent && b.textContent.toLowerCase().includes(selector.toLowerCase()));
+            if (btn) return btn;
+            
+            return null;
           },
           
           click: function(selector) {
@@ -287,7 +304,16 @@ export async function ensureHelperScript(tab: Tab): Promise<boolean> {
             for (const [key, config] of Object.entries(schema)) {
               if (!config.selector) continue;
               if (config.multiple) {
-                const els = Array.from(document.querySelectorAll(config.selector));
+                // Try querySelectorAll, but handle invalid selectors gracefully
+                let els = [];
+                try {
+                  els = Array.from(document.querySelectorAll(config.selector));
+                } catch (selectorError) {
+                  // Invalid CSS selector, return empty array
+                  console.debug('Invalid CSS selector for extractData, returning empty array:', config.selector);
+                  results[key] = [];
+                  continue;
+                }
                 results[key] = els.map(el => el.textContent?.trim());
               } else {
                 const el = this.findElement(config.selector);

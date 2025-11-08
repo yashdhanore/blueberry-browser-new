@@ -8,11 +8,17 @@
 
   function findElement(selector) {
     try {
-      let element = document.querySelector(selector);
-      if (element) return element;
+      // Try CSS selector first, but catch invalid selector syntax
+      try {
+        let element = document.querySelector(selector);
+        if (element) return element;
+      } catch (selectorError) {
+        // Invalid CSS selector (e.g., :contains() is not valid), continue to fallback methods
+        console.debug('Invalid CSS selector, trying fallback methods:', selector);
+      }
 
       if (selector.startsWith("#")) {
-        element = document.getElementById(selector.substring(1));
+        const element = document.getElementById(selector.substring(1));
         if (element) return element;
       }
 
@@ -24,40 +30,56 @@
           XPathResult.FIRST_ORDERED_NODE_TYPE,
           null
         );
-        element = result.singleNodeValue;
+        const element = result.singleNodeValue;
         if (element) return element;
       }
 
-      const textSelector = `//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '${selector.toLowerCase()}')]`;
-      const textResult = document.evaluate(
-        textSelector,
-        document,
-        null,
-        XPathResult.FIRST_ORDERED_NODE_TYPE,
-        null
-      );
-      element = textResult.singleNodeValue;
-      if (element) return element;
+      // Try XPath text search
+      try {
+        const textSelector = `//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '${selector.toLowerCase().replace(/'/g, "''")}')]`;
+        const textResult = document.evaluate(
+          textSelector,
+          document,
+          null,
+          XPathResult.FIRST_ORDERED_NODE_TYPE,
+          null
+        );
+        const element = textResult.singleNodeValue;
+        if (element) return element;
+      } catch (xpathError) {
+        // XPath failed, continue to other methods
+      }
 
-      element = document.querySelector(`[aria-label*="${selector}" i]`);
-      if (element) return element;
+      // Try attribute selectors (with error handling)
+      try {
+        const element = document.querySelector(`[aria-label*="${selector}" i]`);
+        if (element) return element;
+      } catch (e) {
+        // Invalid selector, continue
+      }
 
-      element = document.querySelector(`[placeholder*="${selector}" i]`);
-      if (element) return element;
+      try {
+        const element = document.querySelector(`[placeholder*="${selector}" i]`);
+        if (element) return element;
+      } catch (e) {
+        // Invalid selector, continue
+      }
 
+      // Try text-based search on buttons
       const buttons = Array.from(
         document.querySelectorAll('button, [role="button"]')
       );
-      element = buttons.find((btn) =>
+      const buttonElement = buttons.find((btn) =>
         btn.textContent.toLowerCase().includes(selector.toLowerCase())
       );
-      if (element) return element;
+      if (buttonElement) return buttonElement;
 
+      // Try text-based search on links
       const links = Array.from(document.querySelectorAll("a"));
-      element = links.find((link) =>
+      const linkElement = links.find((link) =>
         link.textContent.toLowerCase().includes(selector.toLowerCase())
       );
-      if (element) return element;
+      if (linkElement) return linkElement;
 
       return null;
     } catch (error) {
@@ -68,8 +90,15 @@
 
   function findElements(selector) {
     try {
-      const elements = document.querySelectorAll(selector);
-      return Array.from(elements);
+      // Try CSS selector first, but catch invalid selector syntax
+      try {
+        const elements = document.querySelectorAll(selector);
+        return Array.from(elements);
+      } catch (selectorError) {
+        // Invalid CSS selector, return empty array
+        console.debug('Invalid CSS selector for findElements, returning empty array:', selector);
+        return [];
+      }
     } catch (error) {
       console.error("Error finding elements:", error);
       return [];
@@ -309,11 +338,13 @@
         if (!config.selector) continue;
 
         if (config.multiple) {
+          // findElements already handles invalid selectors gracefully
           const elements = findElements(config.selector);
           results[key] = elements
             .map((el) => extractValue(el, config.type))
             .filter((v) => v);
         } else {
+          // findElement already handles invalid selectors gracefully
           const element = findElement(config.selector);
           if (element) {
             results[key] = extractValue(element, config.type);

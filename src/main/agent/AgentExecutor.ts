@@ -52,8 +52,16 @@ export class AgentExecutor {
     const startTime = Date.now();
 
     try {
+      // Log action execution details
+      console.log("🔨 Executing Action:");
+      console.log(`   Type: ${action.type}`);
+      console.log(`   Parameters: ${JSON.stringify(action.parameters, null, 2)}`);
+      console.log(`   Reasoning: ${action.reasoning || 'N/A'}`);
+      console.log(`   Retry Count: ${retryCount}/${this.config.maxRetries}`);
+
       const validationError = validateAction(action);
       if (validationError) {
+        console.error(`   ❌ Validation Error: ${validationError}`);
         return this.createErrorResult(action, validationError, startTime);
       }
 
@@ -130,10 +138,22 @@ export class AgentExecutor {
 
       if (!result.success && retryCount < this.config.maxRetries) {
         console.log(
-          `Retrying action (attempt ${retryCount + 1}/${this.config.maxRetries})`
+          `   ⚠️  Action failed, retrying (attempt ${retryCount + 1}/${this.config.maxRetries})`
         );
+        if (result.error) {
+          console.log(`   Error: ${result.error}`);
+        }
         await this.wait(1000);
         return this.executeAction(action, tab, retryCount + 1);
+      }
+
+      if (result.success) {
+        console.log(`   ✅ Action succeeded (${Date.now() - startTime}ms)`);
+      } else {
+        console.log(`   ❌ Action failed (${Date.now() - startTime}ms)`);
+        if (result.error) {
+          console.log(`   Error: ${result.error}`);
+        }
       }
 
       return result;
@@ -144,12 +164,14 @@ export class AgentExecutor {
 
       if (retryCount < this.config.maxRetries) {
         console.log(
-          `Retrying after error (attempt ${retryCount + 1}/${this.config.maxRetries})`
+          `   ⚠️  Exception occurred, retrying (attempt ${retryCount + 1}/${this.config.maxRetries})`
         );
+        console.log(`   Exception: ${errorMessage}`);
         await this.wait(1000);
         return this.executeAction(action, tab, retryCount + 1);
       }
 
+      console.error(`   ❌ Action failed after ${retryCount + 1} attempts: ${errorMessage}`);
       return this.createErrorResult(action, errorMessage, startTime);
     }
   }
@@ -275,17 +297,23 @@ export class AgentExecutor {
     try {
       await ensureHelperScript(tab);
 
+      const selector = action.parameters.selector;
+      console.log(`   🖱️  Attempting to click element with selector: "${selector}"`);
+      
       const result = await tab.runJs(
-        `window.__agentHelpers.click('${this.escapeString(action.parameters.selector)}')`
+        `window.__agentHelpers.click('${this.escapeString(selector)}')`
       );
 
       if (!result.success) {
+        console.error(`   ❌ Click failed: ${result.error || "Unknown error"}`);
         return this.createErrorResult(
           action,
           result.error || "Click failed",
           startTime
         );
       }
+      
+      console.log(`   ✅ Click succeeded on: ${result.element || 'element'}${result.text ? ` (${result.text})` : ''}`);
 
       await this.wait(this.config.actionDelay);
 
