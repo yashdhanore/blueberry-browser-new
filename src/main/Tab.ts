@@ -12,7 +12,6 @@ export class Tab {
     this._url = url;
     this._title = "New Tab";
 
-    // Create the WebContentsView for web content only
     this.webContentsView = new WebContentsView({
       webPreferences: {
         nodeIntegration: false,
@@ -22,20 +21,15 @@ export class Tab {
       },
     });
 
-    // Set up event listeners
     this.setupEventListeners();
-
-    // Load the initial URL
     this.loadURL(url);
   }
 
   private setupEventListeners(): void {
-    // Update title when page title changes
     this.webContentsView.webContents.on("page-title-updated", (_, title) => {
       this._title = title;
     });
 
-    // Update URL when navigation occurs
     this.webContentsView.webContents.on("did-navigate", (_, url) => {
       this._url = url;
     });
@@ -45,7 +39,6 @@ export class Tab {
     });
   }
 
-  // Getters
   get id(): string {
     return this._id;
   }
@@ -70,7 +63,6 @@ export class Tab {
     return this.webContentsView;
   }
 
-  // Public methods
   show(): void {
     this._isVisible = true;
     this.webContentsView.setVisible(true);
@@ -86,15 +78,75 @@ export class Tab {
   }
 
   async runJs(code: string): Promise<any> {
-    return await this.webContentsView.webContents.executeJavaScript(code);
-  }
+    try {
+      if (this.webContentsView.webContents.isDestroyed()) {
+        return null;
+      }
 
-  async getTabHtml(): Promise<string> {
-    return await this.runJs("return document.documentElement.outerHTML");
+      const url = this._url;
+      if (
+        !url ||
+        url.startsWith("chrome://") ||
+        url.startsWith("chrome-extension://") ||
+        url.startsWith("about:") ||
+        url.startsWith("file://")
+      ) {
+        return null;
+      }
+
+      if (!this.webContentsView.webContents.isLoading()) {
+        return await this.webContentsView.webContents.executeJavaScript(code);
+      }
+
+      return await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          this.webContentsView.webContents.removeListener(
+            "did-finish-load",
+            onLoad
+          );
+          reject(new Error("Page load timeout"));
+        }, 5000);
+
+        const onLoad = () => {
+          clearTimeout(timeout);
+          this.webContentsView.webContents.removeListener(
+            "did-finish-load",
+            onLoad
+          );
+          this.webContentsView.webContents
+            .executeJavaScript(code)
+            .then(resolve)
+            .catch(reject);
+        };
+
+        if (!this.webContentsView.webContents.isLoading()) {
+          clearTimeout(timeout);
+          this.webContentsView.webContents
+            .executeJavaScript(code)
+            .then(resolve)
+            .catch(reject);
+        } else {
+          this.webContentsView.webContents.once("did-finish-load", onLoad);
+        }
+      });
+    } catch (error) {
+      console.debug(`Script execution failed for ${this._url}:`, error);
+      return null;
+    }
   }
 
   async getTabText(): Promise<string> {
-    return await this.runJs("return document.documentElement.innerText");
+    const result = await this.runJs(
+      "return document.documentElement.innerText"
+    );
+    return result || "";
+  }
+
+  async getTabHtml(): Promise<string> {
+    const result = await this.runJs(
+      "return document.documentElement.outerHTML"
+    );
+    return result || "";
   }
 
   loadURL(url: string): Promise<void> {

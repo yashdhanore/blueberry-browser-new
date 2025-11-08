@@ -1,3 +1,9 @@
+/**
+ * Sidebar API Type Definitions
+ *
+ * TypeScript definitions for the sidebar preload API including agent management.
+ */
+
 import { ElectronAPI } from "@electron-toolkit/preload";
 
 interface ChatRequest {
@@ -23,19 +29,150 @@ interface TabInfo {
   isActive: boolean;
 }
 
-interface SidebarAPI {
-  // Chat functionality
-  sendChatMessage: (request: ChatRequest) => Promise<void>;
-  onChatResponse: (callback: (data: ChatResponse) => void) => void;
-  removeChatResponseListener: () => void;
+interface AgentGoal {
+  id: string;
+  goal: string;
+  tabId: string;
+  createdAt: string;
+}
 
-  // Page content access
+interface AgentState {
+  goal: AgentGoal;
+  status:
+    | "created"
+    | "planning"
+    | "executing"
+    | "paused"
+    | "completed"
+    | "failed"
+    | "stopped";
+  currentContext: AgentContext | null;
+  actionHistory: ExecutionResult[];
+  currentAction: AgentAction | null;
+  iteration: number;
+  maxIterations: number;
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+  result?: any;
+}
+
+interface AgentContext {
+  url: string;
+  title: string;
+  screenshot: string;
+  simplifiedDOM: string;
+  pageText: string;
+  timestamp: string;
+}
+
+interface AgentAction {
+  type: string;
+  parameters: any;
+  reasoning?: string;
+  timestamp: string;
+}
+
+interface ExecutionResult {
+  success: boolean;
+  action: AgentAction;
+  error?: string;
+  data?: any;
+  screenshot?: string;
+  duration: number;
+  timestamp: string;
+}
+
+interface AgentStatusUpdate {
+  agentId: string;
+  state: AgentState;
+}
+
+interface AgentActionExecuted {
+  agentId: string;
+  action: AgentAction;
+}
+
+interface AgentCompleted {
+  agentId: string;
+  result: any;
+}
+
+interface AgentError {
+  agentId: string;
+  error: string;
+}
+
+interface AgentAPIResponse {
+  success: boolean;
+  error?: string;
+}
+
+interface CreateAgentResponse extends AgentAPIResponse {
+  agentId?: string;
+}
+
+interface GetAgentStatusResponse extends AgentAPIResponse {
+  state?: AgentState;
+}
+
+interface ListAgentsResponse extends AgentAPIResponse {
+  agents?: AgentState[];
+}
+
+interface LoadRecipeResponse extends AgentAPIResponse {
+  agentId?: string;
+}
+
+interface ListRecipesResponse extends AgentAPIResponse {
+  recipes?: string[];
+}
+
+interface SidebarAPI {
+  sendChatMessage: (request: Partial<ChatRequest>) => Promise<void>;
+  clearChat: () => Promise<boolean>;
+  getMessages: () => Promise<any[]>;
+  onChatResponse: (callback: (data: ChatResponse) => void) => void;
+  onMessagesUpdated: (callback: (messages: any[]) => void) => void;
+  removeChatResponseListener: () => void;
+  removeMessagesUpdatedListener: () => void;
+
   getPageContent: () => Promise<string | null>;
   getPageText: () => Promise<string | null>;
   getCurrentUrl: () => Promise<string | null>;
 
-  // Tab information
   getActiveTabInfo: () => Promise<TabInfo | null>;
+
+  createAgent: (goal: string) => Promise<CreateAgentResponse>;
+  startAgent: (agentId: string) => Promise<AgentAPIResponse>;
+  pauseAgent: (agentId: string) => Promise<AgentAPIResponse>;
+  resumeAgent: (agentId: string) => Promise<AgentAPIResponse>;
+  stopAgent: (agentId: string) => Promise<AgentAPIResponse>;
+
+  getAgentStatus: (agentId: string) => Promise<GetAgentStatusResponse>;
+  listAllAgents: () => Promise<ListAgentsResponse>;
+  listActiveAgents: () => Promise<ListAgentsResponse>;
+
+  onAgentStatusUpdate: (callback: (data: AgentStatusUpdate) => void) => void;
+  onAgentActionExecuted: (
+    callback: (data: AgentActionExecuted) => void
+  ) => void;
+  onAgentCompleted: (callback: (data: AgentCompleted) => void) => void;
+  onAgentError: (callback: (data: AgentError) => void) => void;
+  removeAgentStatusUpdateListener: () => void;
+  removeAgentActionExecutedListener: () => void;
+  removeAgentCompletedListener: () => void;
+  removeAgentErrorListener: () => void;
+  removeAllAgentListeners: () => void;
+
+  saveAgentRecipe: (
+    agentId: string,
+    name: string,
+    description?: string
+  ) => Promise<AgentAPIResponse>;
+  loadAgentRecipe: (recipeName: string) => Promise<LoadRecipeResponse>;
+  listAgentRecipes: () => Promise<ListRecipesResponse>;
+  deleteAgentRecipe: (recipeName: string) => Promise<AgentAPIResponse>;
 }
 
 declare global {
@@ -45,3 +182,24 @@ declare global {
   }
 }
 
+export type {
+  ChatRequest,
+  ChatResponse,
+  TabInfo,
+  AgentGoal,
+  AgentState,
+  AgentContext,
+  AgentAction,
+  ExecutionResult,
+  AgentStatusUpdate,
+  AgentActionExecuted,
+  AgentCompleted,
+  AgentError,
+  AgentAPIResponse,
+  CreateAgentResponse,
+  GetAgentStatusResponse,
+  ListAgentsResponse,
+  LoadRecipeResponse,
+  ListRecipesResponse,
+  SidebarAPI,
+};
