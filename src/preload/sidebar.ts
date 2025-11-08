@@ -231,6 +231,48 @@ const sidebarAPI = {
 
   importSkillFromJSON: (jsonContent: string) =>
     electronAPI.ipcRenderer.invoke("skill-import-json", jsonContent),
+
+  // Recording Management
+  startRecording: (tabId?: string) =>
+    electronAPI.ipcRenderer.invoke("recording-start", tabId),
+
+  stopRecording: (sessionId: string) =>
+    electronAPI.ipcRenderer.invoke("recording-stop", sessionId),
+
+  pauseRecording: (sessionId: string) =>
+    electronAPI.ipcRenderer.invoke("recording-pause", sessionId),
+
+  resumeRecording: (sessionId: string) =>
+    electronAPI.ipcRenderer.invoke("recording-resume", sessionId),
+
+  getRecordingSession: (sessionId: string) =>
+    electronAPI.ipcRenderer.invoke("recording-get-session", sessionId),
+
+  getActiveRecordingSession: () =>
+    electronAPI.ipcRenderer.invoke("recording-get-active"),
+
+  deleteRecordingSession: (sessionId: string) =>
+    electronAPI.ipcRenderer.invoke("recording-delete-session", sessionId),
+
+  onRecordingStatusUpdate: (callback: (data: any) => void) => {
+    electronAPI.ipcRenderer.on("recording-status-update", (_, data) =>
+      callback(data)
+    );
+  },
+
+  onRecordingActionRecorded: (callback: (data: any) => void) => {
+    electronAPI.ipcRenderer.on("recording-action-recorded", (_, data) =>
+      callback(data)
+    );
+  },
+
+  removeRecordingStatusUpdateListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("recording-status-update");
+  },
+
+  removeRecordingActionRecordedListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("recording-action-recorded");
+  },
 };
 
 if (process.contextIsolated) {

@@ -14,7 +14,10 @@ import {
   Zap,
   AlertCircle,
   CheckCircle2,
-  Loader2
+  Loader2,
+  Circle,
+  Square,
+  Pause
 } from 'lucide-react';
 
 interface Skill {
@@ -48,10 +51,45 @@ export const SkillsPanel: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [slashCommand, setSlashCommand] = useState('');
 
+  // Recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSessionId, setRecordingSessionId] = useState<string | null>(null);
+  const [recordedActions, setRecordedActions] = useState<any[]>([]);
+
   // Load skills on mount
   useEffect(() => {
     loadSkills();
+    checkActiveRecording();
   }, []);
+
+  // Listen for recording events
+  useEffect(() => {
+    window.sidebarAPI.onRecordingStatusUpdate((data) => {
+      setIsRecording(data.isRecording);
+    });
+
+    window.sidebarAPI.onRecordingActionRecorded((data) => {
+      setRecordedActions(prev => [...prev, data.action]);
+    });
+
+    return () => {
+      window.sidebarAPI.removeRecordingStatusUpdateListener();
+      window.sidebarAPI.removeRecordingActionRecordedListener();
+    };
+  }, []);
+
+  const checkActiveRecording = async () => {
+    try {
+      const response = await window.sidebarAPI.getActiveRecordingSession();
+      if (response.success && response.session) {
+        setIsRecording(response.session.isRecording);
+        setRecordingSessionId(response.session.id);
+        setRecordedActions(response.session.actions || []);
+      }
+    } catch (err) {
+      console.error('Error checking active recording:', err);
+    }
+  };
 
   const loadSkills = async () => {
     try {
@@ -158,6 +196,101 @@ export const SkillsPanel: React.FC = () => {
     }
   };
 
+  // Recording handlers
+  const handleStartRecording = async () => {
+    setError(null);
+    setRecordedActions([]);
+
+    try {
+      const response = await window.sidebarAPI.startRecording();
+
+      if (response.success && response.sessionId) {
+        setRecordingSessionId(response.sessionId);
+        setIsRecording(true);
+      } else {
+        setError(response.error || 'Failed to start recording');
+      }
+    } catch (err) {
+      console.error('Error starting recording:', err);
+      setError('Failed to start recording');
+    }
+  };
+
+  const handleStopRecording = async () => {
+    if (!recordingSessionId) return;
+
+    try {
+      const response = await window.sidebarAPI.stopRecording(recordingSessionId);
+
+      if (response.success && response.actions) {
+        setIsRecording(false);
+
+        // Prompt to save as skill
+        const name = prompt('Save recording as skill?\nEnter a name:');
+        if (name) {
+          const description = prompt('Enter a description (optional):') || 'Recorded skill';
+          const tagsInput = prompt('Enter tags (comma-separated, optional):') || '';
+          const tags = tagsInput.split(',').map(t => t.trim()).filter(t => t);
+
+          const saveResponse = await window.sidebarAPI.createSkill(
+            name,
+            description,
+            response.actions,
+            tags
+          );
+
+          if (saveResponse.success) {
+            alert(`Skill "${name}" saved successfully!`);
+            await loadSkills();
+            setRecordedActions([]);
+            setRecordingSessionId(null);
+          } else {
+            setError(saveResponse.error || 'Failed to save skill');
+          }
+        } else {
+          // Just stop recording without saving
+          setRecordedActions([]);
+          setRecordingSessionId(null);
+        }
+      } else {
+        setError(response.error || 'Failed to stop recording');
+      }
+    } catch (err) {
+      console.error('Error stopping recording:', err);
+      setError('Failed to stop recording');
+    }
+  };
+
+  const handlePauseRecording = async () => {
+    if (!recordingSessionId) return;
+
+    try {
+      const response = await window.sidebarAPI.pauseRecording(recordingSessionId);
+
+      if (!response.success) {
+        setError(response.error || 'Failed to pause recording');
+      }
+    } catch (err) {
+      console.error('Error pausing recording:', err);
+      setError('Failed to pause recording');
+    }
+  };
+
+  const handleResumeRecording = async () => {
+    if (!recordingSessionId) return;
+
+    try {
+      const response = await window.sidebarAPI.resumeRecording(recordingSessionId);
+
+      if (!response.success) {
+        setError(response.error || 'Failed to resume recording');
+      }
+    } catch (err) {
+      console.error('Error resuming recording:', err);
+      setError('Failed to resume recording');
+    }
+  };
+
   const filteredSkills = skills.filter(skill =>
     skill.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     skill.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -200,7 +333,7 @@ export const SkillsPanel: React.FC = () => {
         </div>
 
         {/* Search */}
-        <div className="relative">
+        <div className="relative mb-3">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
             type="text"
@@ -209,6 +342,58 @@ export const SkillsPanel: React.FC = () => {
             placeholder="Search skills..."
             className="w-full pl-10 pr-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+        </div>
+
+        {/* Recording Controls */}
+        <div className="border border-border rounded-md p-3 bg-muted/30">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Circle className={`w-3 h-3 ${isRecording ? 'fill-red-500 text-red-500 animate-pulse' : 'text-gray-400'}`} />
+              <span className="text-sm font-medium">
+                {isRecording ? 'Recording...' : 'Record Skill'}
+              </span>
+            </div>
+            {recordedActions.length > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {recordedActions.length} actions
+              </span>
+            )}
+          </div>
+
+          {!isRecording ? (
+            <button
+              onClick={handleStartRecording}
+              disabled={isExecuting}
+              className="w-full px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm flex items-center justify-center gap-2"
+            >
+              <Circle className="w-3 h-3 fill-current" />
+              Start Recording
+            </button>
+          ) : (
+            <div className="flex gap-2">
+              <button
+                onClick={handlePauseRecording}
+                className="flex-1 px-3 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 text-sm flex items-center justify-center gap-1"
+              >
+                <Pause className="w-3 h-3" />
+                Pause
+              </button>
+              <button
+                onClick={handleStopRecording}
+                className="flex-1 px-3 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 text-sm flex items-center justify-center gap-1"
+              >
+                <Square className="w-3 h-3" />
+                Stop & Save
+              </button>
+            </div>
+          )}
+
+          <p className="text-xs text-muted-foreground mt-2">
+            {isRecording
+              ? '🎬 Perform actions in the browser - they\'ll be captured automatically'
+              : 'Click Start to record your browser interactions as a skill'
+            }
+          </p>
         </div>
       </div>
 

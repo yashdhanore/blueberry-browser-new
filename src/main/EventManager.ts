@@ -9,11 +9,13 @@ import { ipcMain, WebContents } from "electron";
 import type { Window } from "./Window";
 import { AgentManager } from "./agent/AgentManager";
 import { SkillsManager } from "./agent/SkillsManager";
+import { RecordingManager } from "./agent/RecordingManager";
 
 export class EventManager {
   private mainWindow: Window;
   private agentManager: AgentManager;
   private skillsManager: SkillsManager;
+  private recordingManager: RecordingManager;
 
   constructor(mainWindow: Window) {
     this.mainWindow = mainWindow;
@@ -33,10 +35,17 @@ export class EventManager {
       console.error("Failed to initialize SkillsManager:", error);
     });
 
+    this.recordingManager = new RecordingManager(mainWindow);
+
     this.setupEventHandlers();
   }
 
   private setupEventHandlers(): void {
+    // Set webContents for managers
+    const sidebarWebContents = this.mainWindow.sidebar.view.webContents;
+    this.agentManager.setWebContents(sidebarWebContents);
+    this.recordingManager.setWebContents(sidebarWebContents);
+
     // Existing handlers
     this.handleTabEvents();
     this.handleSidebarEvents();
@@ -45,6 +54,7 @@ export class EventManager {
     this.handleDebugEvents();
     this.handleAgentEvents();
     this.handleSkillsEvents();
+    this.handleRecordingEvents();
   }
 
   private handleTabEvents(): void {
@@ -643,9 +653,120 @@ export class EventManager {
     console.log("✅ Skills IPC handlers registered");
   }
 
+  private handleRecordingEvents(): void {
+    // Start recording
+    ipcMain.handle("recording-start", async (_, tabId?: string) => {
+      try {
+        const sessionId = await this.recordingManager.startRecording(tabId);
+        return { success: true, sessionId };
+      } catch (error) {
+        console.error("Error starting recording:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Stop recording
+    ipcMain.handle("recording-stop", (_, sessionId: string) => {
+      try {
+        const actions = this.recordingManager.stopRecording(sessionId);
+        return { success: true, actions };
+      } catch (error) {
+        console.error("Error stopping recording:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Pause recording
+    ipcMain.handle("recording-pause", (_, sessionId: string) => {
+      try {
+        this.recordingManager.pauseRecording(sessionId);
+        return { success: true };
+      } catch (error) {
+        console.error("Error pausing recording:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Resume recording
+    ipcMain.handle("recording-resume", (_, sessionId: string) => {
+      try {
+        this.recordingManager.resumeRecording(sessionId);
+        return { success: true };
+      } catch (error) {
+        console.error("Error resuming recording:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Get recording session
+    ipcMain.handle("recording-get-session", (_, sessionId: string) => {
+      try {
+        const session = this.recordingManager.getSession(sessionId);
+        return { success: true, session };
+      } catch (error) {
+        console.error("Error getting recording session:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Get active recording session
+    ipcMain.handle("recording-get-active", () => {
+      try {
+        const session = this.recordingManager.getActiveSession();
+        return { success: true, session };
+      } catch (error) {
+        console.error("Error getting active recording session:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Delete recording session
+    ipcMain.handle("recording-delete-session", (_, sessionId: string) => {
+      try {
+        this.recordingManager.deleteSession(sessionId);
+        return { success: true };
+      } catch (error) {
+        console.error("Error deleting recording session:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Handle recorded events from content script
+    ipcMain.on("recording-event", (event, data) => {
+      const activeSession = this.recordingManager.getActiveSession();
+      if (activeSession) {
+        this.recordingManager.handleRecordedEvent(activeSession.id, data);
+      }
+    });
+
+    console.log("✅ Recording IPC handlers registered");
+  }
+
   public cleanup(): void {
     console.log("Cleaning up EventManager");
     this.agentManager.cleanup();
+    this.recordingManager.cleanup();
     ipcMain.removeAllListeners();
   }
 }
