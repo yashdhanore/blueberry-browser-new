@@ -1,29 +1,42 @@
+/**
+ * Event Manager
+ *
+ * Handles all IPC communication between main process and renderer processes.
+ * Now includes agent management handlers.
+ */
+
 import { ipcMain, WebContents } from "electron";
 import type { Window } from "./Window";
+import { AgentManager } from "./agent/AgentManager";
 
 export class EventManager {
   private mainWindow: Window;
+  private agentManager: AgentManager;
 
   constructor(mainWindow: Window) {
     this.mainWindow = mainWindow;
+
+    this.agentManager = new AgentManager(mainWindow, {
+      maxIterations: 50,
+      maxRetries: 3,
+      actionDelay: 1000,
+      defaultTimeout: 30000,
+      captureScreenshots: true,
+      llmModel: process.env.LLM_MODEL || "gpt-5-mini",
+      llmTemperature: 0.7,
+    });
+
     this.setupEventHandlers();
   }
 
   private setupEventHandlers(): void {
-    // Tab management events
+    // Existing handlers
     this.handleTabEvents();
-
-    // Sidebar events
     this.handleSidebarEvents();
-
-    // Page content events
     this.handlePageContentEvents();
-
-    // Dark mode events
     this.handleDarkModeEvents();
-
-    // Debug events
     this.handleDebugEvents();
+    this.handleAgentEvents();
   }
 
   private handleTabEvents(): void {
@@ -218,11 +231,6 @@ export class EventManager {
     });
   }
 
-  private handleDebugEvents(): void {
-    // Ping test
-    ipcMain.on("ping", () => console.log("pong"));
-  }
-
   private broadcastDarkMode(sender: WebContents, isDarkMode: boolean): void {
     // Send to topbar
     if (this.mainWindow.topBar.view.webContents !== sender) {
@@ -248,8 +256,185 @@ export class EventManager {
     });
   }
 
-  // Clean up event listeners
+  private handleDebugEvents(): void {
+    // Ping test
+    ipcMain.on("ping", () => console.log("pong"));
+  }
+
+  private handleAgentEvents(): void {
+    const sidebarWebContents = this.mainWindow.sidebar.view.webContents;
+    this.agentManager.setWebContents(sidebarWebContents);
+
+    ipcMain.handle("agent-create", async (_, goal: string) => {
+      try {
+        const activeTab = this.mainWindow.activeTab;
+        if (!activeTab) {
+          throw new Error("No active tab");
+        }
+
+        const agentId = this.agentManager.createAgent(goal, activeTab.id);
+        return { success: true, agentId };
+      } catch (error) {
+        console.error("Error creating agent:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    ipcMain.handle("agent-start", async (_, agentId: string) => {
+      try {
+        await this.agentManager.startAgent(agentId);
+        return { success: true };
+      } catch (error) {
+        console.error("Error starting agent:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    ipcMain.handle("agent-pause", (_, agentId: string) => {
+      try {
+        this.agentManager.pauseAgent(agentId);
+        return { success: true };
+      } catch (error) {
+        console.error("Error pausing agent:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    ipcMain.handle("agent-resume", async (_, agentId: string) => {
+      try {
+        await this.agentManager.resumeAgent(agentId);
+        return { success: true };
+      } catch (error) {
+        console.error("Error resuming agent:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    ipcMain.handle("agent-stop", (_, agentId: string) => {
+      try {
+        this.agentManager.stopAgent(agentId);
+        return { success: true };
+      } catch (error) {
+        console.error("Error stopping agent:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    ipcMain.handle("agent-get-status", (_, agentId: string) => {
+      try {
+        const state = this.agentManager.getAgentStatus(agentId);
+        return { success: true, state };
+      } catch (error) {
+        console.error("Error getting agent status:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    ipcMain.handle("agent-list-all", () => {
+      try {
+        const agents = this.agentManager.listAllAgents();
+        return { success: true, agents };
+      } catch (error) {
+        console.error("Error listing agents:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    ipcMain.handle("agent-list-active", () => {
+      try {
+        const agents = this.agentManager.getActiveAgents();
+        return { success: true, agents };
+      } catch (error) {
+        console.error("Error listing active agents:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    ipcMain.handle(
+      "agent-save-recipe",
+      (_, agentId: string, name: string, description?: string) => {
+        try {
+          this.agentManager.saveRecipe(agentId, name, description || "");
+          return { success: true };
+        } catch (error) {
+          console.error("Error saving recipe:", error);
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    );
+
+    ipcMain.handle("agent-load-recipe", async (_, recipeName: string) => {
+      try {
+        const agentId = await this.agentManager.loadRecipe(recipeName);
+        return { success: true, agentId };
+      } catch (error) {
+        console.error("Error loading recipe:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    ipcMain.handle("agent-list-recipes", () => {
+      try {
+        const recipes = this.agentManager.listRecipes();
+        return { success: true, recipes };
+      } catch (error) {
+        console.error("Error listing recipes:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    ipcMain.handle("agent-delete-recipe", (_, recipeName: string) => {
+      try {
+        this.agentManager.deleteRecipe(recipeName);
+        return { success: true };
+      } catch (error) {
+        console.error("Error deleting recipe:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    console.log("✅ Agent IPC handlers registered");
+  }
+
   public cleanup(): void {
+    console.log("Cleaning up EventManager");
+    this.agentManager.cleanup();
     ipcMain.removeAllListeners();
   }
 }
