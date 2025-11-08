@@ -8,10 +8,11 @@ import React, { useEffect, useState } from 'react';
 import { ChatProvider } from './contexts/ChatContext';
 import { Chat } from './components/Chat';
 import { AgentPanel } from './components/Agentpanel';
+import { SkillsPanel } from './components/SkillsPanel';
 import { useDarkMode } from '@common/hooks/useDarkMode';
-import { MessageSquare, Brain } from 'lucide-react';
+import { MessageSquare, Brain, Zap } from 'lucide-react';
 
-type TabMode = 'chat' | 'agent';
+type TabMode = 'chat' | 'agent' | 'skills';
 
 const SidebarContent: React.FC = () => {
   const { isDarkMode } = useDarkMode();
@@ -43,7 +44,7 @@ const SidebarContent: React.FC = () => {
             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
           )}
         </button>
-        
+
         <button
           onClick={() => setActiveTab('agent')}
           className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors relative ${
@@ -58,11 +59,28 @@ const SidebarContent: React.FC = () => {
             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
           )}
         </button>
+
+        <button
+          onClick={() => setActiveTab('skills')}
+          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors relative ${
+            activeTab === 'skills'
+              ? 'text-foreground'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Zap className="w-4 h-4" />
+          <span>Skills</span>
+          {activeTab === 'skills' && (
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
+          )}
+        </button>
       </div>
 
       {/* Content Area */}
       <div className="flex-1 overflow-hidden">
-        {activeTab === 'chat' ? <Chat /> : <AgentPanel />}
+        {activeTab === 'chat' && <Chat />}
+        {activeTab === 'agent' && <AgentPanel />}
+        {activeTab === 'skills' && <SkillsPanel />}
       </div>
     </div>
   );

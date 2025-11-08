@@ -179,6 +179,58 @@ const sidebarAPI = {
 
   deleteAgentRecipe: (recipeName: string) =>
     electronAPI.ipcRenderer.invoke("agent-delete-recipe", recipeName),
+
+  // Skills Management
+  createSkillFromAgent: (
+    agentId: string,
+    name: string,
+    description?: string,
+    tags?: string[]
+  ) =>
+    electronAPI.ipcRenderer.invoke(
+      "skill-create-from-agent",
+      agentId,
+      name,
+      description,
+      tags
+    ),
+
+  createSkill: (
+    name: string,
+    description: string,
+    actions: any[],
+    tags?: string[]
+  ) =>
+    electronAPI.ipcRenderer.invoke("skill-create", name, description, actions, tags),
+
+  saveSkill: (skill: any) =>
+    electronAPI.ipcRenderer.invoke("skill-save", skill),
+
+  loadSkill: (skillId: string) =>
+    electronAPI.ipcRenderer.invoke("skill-load", skillId),
+
+  listAllSkills: () => electronAPI.ipcRenderer.invoke("skill-list-all"),
+
+  getSkill: (skillId: string) =>
+    electronAPI.ipcRenderer.invoke("skill-get", skillId),
+
+  executeSkill: (skillId: string, options?: any) =>
+    electronAPI.ipcRenderer.invoke("skill-execute", skillId, options),
+
+  executeSkillByName: (name: string, options?: any) =>
+    electronAPI.ipcRenderer.invoke("skill-execute-by-name", name, options),
+
+  deleteSkill: (skillId: string) =>
+    electronAPI.ipcRenderer.invoke("skill-delete", skillId),
+
+  searchSkillsByTags: (tags: string[]) =>
+    electronAPI.ipcRenderer.invoke("skill-search-by-tags", tags),
+
+  exportSkillToJSON: (skillId: string) =>
+    electronAPI.ipcRenderer.invoke("skill-export-json", skillId),
+
+  importSkillFromJSON: (jsonContent: string) =>
+    electronAPI.ipcRenderer.invoke("skill-import-json", jsonContent),
 };
 
 if (process.contextIsolated) {

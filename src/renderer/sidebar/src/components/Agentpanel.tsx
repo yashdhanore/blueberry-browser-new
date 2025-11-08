@@ -167,7 +167,7 @@ export const AgentPanel: React.FC = () => {
         name,
         currentAgent.goal.goal
       );
-      
+
       if (!response.success) {
         throw new Error(response.error || 'Failed to save recipe');
       }
@@ -175,6 +175,34 @@ export const AgentPanel: React.FC = () => {
       alert(`Recipe "${name}" saved successfully!`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save recipe');
+    }
+  };
+
+  const handleSaveAsSkill = async () => {
+    if (!currentAgent) return;
+
+    const name = prompt('Enter a name for this skill:');
+    if (!name) return;
+
+    const description = prompt('Enter a description (optional):') || currentAgent.goal.goal;
+    const tagsInput = prompt('Enter tags (comma-separated, optional):') || '';
+    const tags = tagsInput.split(',').map(t => t.trim()).filter(t => t);
+
+    try {
+      const response = await window.sidebarAPI.createSkillFromAgent(
+        currentAgent.goal.id,
+        name,
+        description,
+        tags
+      );
+
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to save skill');
+      }
+
+      alert(`Skill "${name}" saved successfully! You can now use it with /${name.toLowerCase().replace(/\s+/g, '-')}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save skill');
     }
   };
 
@@ -414,13 +442,22 @@ export const AgentPanel: React.FC = () => {
             </div>
 
             {currentAgent.status === 'completed' && currentAgent.actionHistory.length > 0 && (
-              <button
-                onClick={handleSaveRecipe}
-                className="w-full px-4 py-2 bg-secondary hover:bg-secondary/80 text-foreground rounded-lg transition-colors flex items-center justify-center gap-2"
-              >
-                <Save className="w-4 h-4" />
-                Save as Recipe
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={handleSaveAsSkill}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  <Zap className="w-4 h-4" />
+                  Save as Skill
+                </button>
+                <button
+                  onClick={handleSaveRecipe}
+                  className="px-4 py-2 bg-secondary hover:bg-secondary/80 text-foreground rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  <Save className="w-4 h-4" />
+                  Save Recipe
+                </button>
+              </div>
             )}
 
             <div className="border border-border rounded-lg overflow-hidden">

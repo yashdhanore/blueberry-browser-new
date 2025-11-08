@@ -8,10 +8,12 @@
 import { ipcMain, WebContents } from "electron";
 import type { Window } from "./Window";
 import { AgentManager } from "./agent/AgentManager";
+import { SkillsManager } from "./agent/SkillsManager";
 
 export class EventManager {
   private mainWindow: Window;
   private agentManager: AgentManager;
+  private skillsManager: SkillsManager;
 
   constructor(mainWindow: Window) {
     this.mainWindow = mainWindow;
@@ -26,6 +28,11 @@ export class EventManager {
       llmTemperature: 0.7,
     });
 
+    this.skillsManager = new SkillsManager(mainWindow);
+    this.skillsManager.initialize().catch((error) => {
+      console.error("Failed to initialize SkillsManager:", error);
+    });
+
     this.setupEventHandlers();
   }
 
@@ -37,6 +44,7 @@ export class EventManager {
     this.handleDarkModeEvents();
     this.handleDebugEvents();
     this.handleAgentEvents();
+    this.handleSkillsEvents();
   }
 
   private handleTabEvents(): void {
@@ -430,6 +438,209 @@ export class EventManager {
     });
 
     console.log("✅ Agent IPC handlers registered");
+  }
+
+  private handleSkillsEvents(): void {
+    // Create skill from agent
+    ipcMain.handle(
+      "skill-create-from-agent",
+      async (
+        _,
+        agentId: string,
+        name: string,
+        description?: string,
+        tags?: string[]
+      ) => {
+        try {
+          const agentState = this.agentManager.getAgentStatus(agentId);
+          if (!agentState) {
+            throw new Error(`Agent not found: ${agentId}`);
+          }
+
+          const skill = this.skillsManager.createSkillFromAgent(
+            agentState,
+            name,
+            description,
+            tags
+          );
+          await this.skillsManager.saveSkill(skill);
+
+          return { success: true, skill };
+        } catch (error) {
+          console.error("Error creating skill from agent:", error);
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    );
+
+    // Create custom skill
+    ipcMain.handle(
+      "skill-create",
+      async (_, name: string, description: string, actions: any[], tags?: string[]) => {
+        try {
+          const skill = this.skillsManager.createSkill(
+            name,
+            description,
+            actions,
+            tags
+          );
+          await this.skillsManager.saveSkill(skill);
+
+          return { success: true, skill };
+        } catch (error) {
+          console.error("Error creating skill:", error);
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    );
+
+    // Save skill
+    ipcMain.handle("skill-save", async (_, skill: any) => {
+      try {
+        await this.skillsManager.saveSkill(skill);
+        return { success: true };
+      } catch (error) {
+        console.error("Error saving skill:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Load skill
+    ipcMain.handle("skill-load", async (_, skillId: string) => {
+      try {
+        const skill = await this.skillsManager.loadSkill(skillId);
+        return { success: true, skill };
+      } catch (error) {
+        console.error("Error loading skill:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Get all skills
+    ipcMain.handle("skill-list-all", () => {
+      try {
+        const skills = this.skillsManager.getAllSkills();
+        return { success: true, skills };
+      } catch (error) {
+        console.error("Error listing skills:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Get skill by ID
+    ipcMain.handle("skill-get", (_, skillId: string) => {
+      try {
+        const skill = this.skillsManager.getSkill(skillId);
+        return { success: true, skill };
+      } catch (error) {
+        console.error("Error getting skill:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Execute skill
+    ipcMain.handle("skill-execute", async (_, skillId: string, options?: any) => {
+      try {
+        const result = await this.skillsManager.executeSkill(skillId, options);
+        return { success: true, result };
+      } catch (error) {
+        console.error("Error executing skill:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Execute skill by name (for slash commands)
+    ipcMain.handle("skill-execute-by-name", async (_, name: string, options?: any) => {
+      try {
+        const result = await this.skillsManager.executeSkillByName(name, options);
+        return { success: true, result };
+      } catch (error) {
+        console.error("Error executing skill by name:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Delete skill
+    ipcMain.handle("skill-delete", async (_, skillId: string) => {
+      try {
+        await this.skillsManager.deleteSkill(skillId);
+        return { success: true };
+      } catch (error) {
+        console.error("Error deleting skill:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Search skills by tags
+    ipcMain.handle("skill-search-by-tags", (_, tags: string[]) => {
+      try {
+        const skills = this.skillsManager.searchSkillsByTags(tags);
+        return { success: true, skills };
+      } catch (error) {
+        console.error("Error searching skills by tags:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Export skill to JSON
+    ipcMain.handle("skill-export-json", async (_, skillId: string) => {
+      try {
+        const json = await this.skillsManager.exportSkillToJSON(skillId);
+        return { success: true, json };
+      } catch (error) {
+        console.error("Error exporting skill to JSON:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Import skill from JSON
+    ipcMain.handle("skill-import-json", async (_, jsonContent: string) => {
+      try {
+        const skill = await this.skillsManager.importSkillFromJSON(jsonContent);
+        return { success: true, skill };
+      } catch (error) {
+        console.error("Error importing skill from JSON:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    console.log("✅ Skills IPC handlers registered");
   }
 
   public cleanup(): void {

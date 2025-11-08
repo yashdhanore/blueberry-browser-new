@@ -259,6 +259,51 @@ export interface AgentRecipe {
   useCount: number;
 }
 
+// ============================================================================
+// SKILLS SYSTEM TYPES
+// ============================================================================
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  actions: AgentAction[];
+  metadata: SkillMetadata;
+  context?: SkillContext;
+}
+
+export interface SkillMetadata {
+  tags: string[];
+  createdAt: Date;
+  lastUsedAt?: Date;
+  useCount: number;
+  author?: string;
+  version: string;
+  category?: string;
+}
+
+export interface SkillContext {
+  startUrl?: string;
+  requiredElements?: string[];
+  expectedDomain?: string;
+  notes?: string;
+}
+
+export interface SkillExecutionOptions {
+  tabId?: string;
+  continueOnError?: boolean;
+  timeout?: number;
+}
+
+export interface SkillExecutionResult {
+  skillId: string;
+  success: boolean;
+  executedActions: ExecutionResult[];
+  error?: string;
+  duration: number;
+  timestamp: Date;
+}
+
 export interface PlanningRequest {
   goal: string;
   context: AgentContext;
