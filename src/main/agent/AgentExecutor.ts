@@ -1,0 +1,746 @@
+/**
+ * Agent Executor
+ *
+ * Executes validated actions on tabs and returns execution results.
+ * Handles action execution, error handling, screenshots, and retries.
+ */
+
+import type { Tab } from "../Tab";
+import type { Window } from "../Window";
+import { ActionType } from "./types";
+import type {
+  AgentAction,
+  ExecutionResult,
+  NavigateAction,
+  ClickAction,
+  TypeAction,
+  SelectAction,
+  ScrollAction,
+  HoverAction,
+  ExtractAction,
+  GetTextAction,
+  GetAttributeAction,
+  WaitAction,
+  WaitForElementAction,
+  CreateTabAction,
+  SwitchTabAction,
+  CloseTabAction,
+  CompleteAction,
+  AgentConfig,
+} from "./types";
+import {
+  validateAction,
+  ensureHelperScript,
+  normalizeURL,
+  waitForPageLoad,
+} from "./AgentActions";
+
+export class AgentExecutor {
+  private window: Window;
+  private config: AgentConfig;
+
+  constructor(window: Window, config: AgentConfig) {
+    this.window = window;
+    this.config = config;
+  }
+
+  async executeAction(
+    action: AgentAction,
+    tab: Tab,
+    retryCount: number = 0
+  ): Promise<ExecutionResult> {
+    const startTime = Date.now();
+
+    try {
+      const validationError = validateAction(action);
+      if (validationError) {
+        return this.createErrorResult(action, validationError, startTime);
+      }
+
+      let result: ExecutionResult;
+
+      switch (action.type) {
+        case ActionType.NAVIGATE:
+          result = await this.executeNavigate(action as NavigateAction, tab);
+          break;
+        case ActionType.GO_BACK:
+          result = await this.executeGoBack(tab);
+          break;
+        case ActionType.GO_FORWARD:
+          result = await this.executeGoForward(tab);
+          break;
+        case ActionType.RELOAD:
+          result = await this.executeReload(tab);
+          break;
+        case ActionType.CLICK:
+          result = await this.executeClick(action as ClickAction, tab);
+          break;
+        case ActionType.TYPE:
+          result = await this.executeType(action as TypeAction, tab);
+          break;
+        case ActionType.SELECT:
+          result = await this.executeSelect(action as SelectAction, tab);
+          break;
+        case ActionType.SCROLL:
+          result = await this.executeScroll(action as ScrollAction, tab);
+          break;
+        case ActionType.HOVER:
+          result = await this.executeHover(action as HoverAction, tab);
+          break;
+        case ActionType.EXTRACT:
+          result = await this.executeExtract(action as ExtractAction, tab);
+          break;
+        case ActionType.GET_TEXT:
+          result = await this.executeGetText(action as GetTextAction, tab);
+          break;
+        case ActionType.GET_ATTRIBUTE:
+          result = await this.executeGetAttribute(
+            action as GetAttributeAction,
+            tab
+          );
+          break;
+        case ActionType.WAIT:
+          result = await this.executeWait(action as WaitAction);
+          break;
+        case ActionType.WAIT_FOR_ELEMENT:
+          result = await this.executeWaitForElement(
+            action as WaitForElementAction,
+            tab
+          );
+          break;
+        case ActionType.CREATE_TAB:
+          result = await this.executeCreateTab(action as CreateTabAction);
+          break;
+        case ActionType.SWITCH_TAB:
+          result = await this.executeSwitchTab(action as SwitchTabAction);
+          break;
+        case ActionType.CLOSE_TAB:
+          result = await this.executeCloseTab(action as CloseTabAction);
+          break;
+        case ActionType.COMPLETE:
+          result = await this.executeComplete(action as CompleteAction);
+          break;
+        default:
+          result = this.createErrorResult(
+            action,
+            `Unknown action type: ${(action as AgentAction).type}`,
+            startTime
+          );
+      }
+
+      if (!result.success && retryCount < this.config.maxRetries) {
+        console.log(
+          `Retrying action (attempt ${retryCount + 1}/${this.config.maxRetries})`
+        );
+        await this.wait(1000);
+        return this.executeAction(action, tab, retryCount + 1);
+      }
+
+      return result;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.error("Error executing action:", error);
+
+      if (retryCount < this.config.maxRetries) {
+        console.log(
+          `Retrying after error (attempt ${retryCount + 1}/${this.config.maxRetries})`
+        );
+        await this.wait(1000);
+        return this.executeAction(action, tab, retryCount + 1);
+      }
+
+      return this.createErrorResult(action, errorMessage, startTime);
+    }
+  }
+
+  private async executeNavigate(
+    action: NavigateAction,
+    tab: Tab
+  ): Promise<ExecutionResult> {
+    const startTime = Date.now();
+
+    try {
+      const url = normalizeURL(action.parameters.url);
+      await tab.loadURL(url);
+      await waitForPageLoad(tab, 10000);
+      await ensureHelperScript(tab);
+
+      const screenshot = await this.captureScreenshot(tab);
+
+      return {
+        success: true,
+        action,
+        data: { url },
+        screenshot,
+        duration: Date.now() - startTime,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      return this.createErrorResult(
+        action,
+        `Navigation failed: ${error instanceof Error ? error.message : String(error)}`,
+        startTime
+      );
+    }
+  }
+
+  private async executeGoBack(tab: Tab): Promise<ExecutionResult> {
+    const startTime = Date.now();
+    const action: AgentAction = {
+      type: ActionType.GO_BACK,
+      parameters: {},
+      timestamp: new Date(),
+    };
+
+    try {
+      tab.goBack();
+      await waitForPageLoad(tab, 10000);
+      await ensureHelperScript(tab);
+
+      const screenshot = await this.captureScreenshot(tab);
+
+      return {
+        success: true,
+        action,
+        screenshot,
+        duration: Date.now() - startTime,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      return this.createErrorResult(action, String(error), startTime);
+    }
+  }
+
+  private async executeGoForward(tab: Tab): Promise<ExecutionResult> {
+    const startTime = Date.now();
+    const action: AgentAction = {
+      type: ActionType.GO_FORWARD,
+      parameters: {},
+      timestamp: new Date(),
+    };
+
+    try {
+      tab.goForward();
+      await waitForPageLoad(tab, 10000);
+      await ensureHelperScript(tab);
+
+      const screenshot = await this.captureScreenshot(tab);
+
+      return {
+        success: true,
+        action,
+        screenshot,
+        duration: Date.now() - startTime,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      return this.createErrorResult(action, String(error), startTime);
+    }
+  }
+
+  private async executeReload(tab: Tab): Promise<ExecutionResult> {
+    const startTime = Date.now();
+    const action: AgentAction = {
+      type: ActionType.RELOAD,
+      parameters: {},
+      timestamp: new Date(),
+    };
+
+    try {
+      tab.reload();
+      await waitForPageLoad(tab, 10000);
+      await ensureHelperScript(tab);
+
+      const screenshot = await this.captureScreenshot(tab);
+
+      return {
+        success: true,
+        action,
+        screenshot,
+        duration: Date.now() - startTime,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      return this.createErrorResult(action, String(error), startTime);
+    }
+  }
+
+  private async executeClick(
+    action: ClickAction,
+    tab: Tab
+  ): Promise<ExecutionResult> {
+    const startTime = Date.now();
+
+    try {
+      await ensureHelperScript(tab);
+
+      const result = await tab.runJs(
+        `window.__agentHelpers.click('${this.escapeString(action.parameters.selector)}')`
+      );
+
+      if (!result.success) {
+        return this.createErrorResult(
+          action,
+          result.error || "Click failed",
+          startTime
+        );
+      }
+
+      await this.wait(this.config.actionDelay);
+
+      const screenshot = await this.captureScreenshot(tab);
+
+      return {
+        success: true,
+        action,
+        data: result,
+        screenshot,
+        duration: Date.now() - startTime,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      return this.createErrorResult(action, String(error), startTime);
+    }
+  }
+
+  private async executeType(
+    action: TypeAction,
+    tab: Tab
+  ): Promise<ExecutionResult> {
+    const startTime = Date.now();
+
+    try {
+      await ensureHelperScript(tab);
+
+      const clear = action.parameters.clear || false;
+      const result = await tab.runJs(
+        `window.__agentHelpers.type('${this.escapeString(action.parameters.selector)}', '${this.escapeString(action.parameters.text)}', ${clear})`
+      );
+
+      if (!result.success) {
+        return this.createErrorResult(
+          action,
+          result.error || "Type failed",
+          startTime
+        );
+      }
+
+      const typingDuration = action.parameters.text.length * 50 + 500;
+      await this.wait(Math.min(typingDuration, 3000));
+
+      const screenshot = await this.captureScreenshot(tab);
+
+      return {
+        success: true,
+        action,
+        data: result,
+        screenshot,
+        duration: Date.now() - startTime,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      return this.createErrorResult(action, String(error), startTime);
+    }
+  }
+
+  private async executeSelect(
+    action: SelectAction,
+    tab: Tab
+  ): Promise<ExecutionResult> {
+    const startTime = Date.now();
+
+    try {
+      await ensureHelperScript(tab);
+
+      const result = await tab.runJs(
+        `window.__agentHelpers.select('${this.escapeString(action.parameters.selector)}', '${this.escapeString(action.parameters.value)}')`
+      );
+
+      if (!result.success) {
+        return this.createErrorResult(
+          action,
+          result.error || "Select failed",
+          startTime
+        );
+      }
+
+      await this.wait(this.config.actionDelay);
+
+      const screenshot = await this.captureScreenshot(tab);
+
+      return {
+        success: true,
+        action,
+        data: result,
+        screenshot,
+        duration: Date.now() - startTime,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      return this.createErrorResult(action, String(error), startTime);
+    }
+  }
+
+  private async executeScroll(
+    action: ScrollAction,
+    tab: Tab
+  ): Promise<ExecutionResult> {
+    const startTime = Date.now();
+
+    try {
+      await ensureHelperScript(tab);
+
+      const direction = action.parameters.direction;
+      const amount = action.parameters.amount || 300;
+
+      const result = await tab.runJs(
+        `window.__agentHelpers.scroll('${direction}', ${amount})`
+      );
+
+      if (!result.success) {
+        return this.createErrorResult(
+          action,
+          result.error || "Scroll failed",
+          startTime
+        );
+      }
+
+      await this.wait(1000);
+
+      const screenshot = await this.captureScreenshot(tab);
+
+      return {
+        success: true,
+        action,
+        data: result,
+        screenshot,
+        duration: Date.now() - startTime,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      return this.createErrorResult(action, String(error), startTime);
+    }
+  }
+
+  private async executeHover(
+    action: HoverAction,
+    tab: Tab
+  ): Promise<ExecutionResult> {
+    const startTime = Date.now();
+
+    try {
+      await ensureHelperScript(tab);
+
+      const result = await tab.runJs(
+        `window.__agentHelpers.hover('${this.escapeString(action.parameters.selector)}')`
+      );
+
+      if (!result.success) {
+        return this.createErrorResult(
+          action,
+          result.error || "Hover failed",
+          startTime
+        );
+      }
+
+      await this.wait(500);
+
+      const screenshot = await this.captureScreenshot(tab);
+
+      return {
+        success: true,
+        action,
+        data: result,
+        screenshot,
+        duration: Date.now() - startTime,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      return this.createErrorResult(action, String(error), startTime);
+    }
+  }
+
+  private async executeExtract(
+    action: ExtractAction,
+    tab: Tab
+  ): Promise<ExecutionResult> {
+    const startTime = Date.now();
+
+    try {
+      await ensureHelperScript(tab);
+
+      const schemaJson = JSON.stringify(action.parameters.schema);
+      const result = await tab.runJs(
+        `window.__agentHelpers.extractData(${schemaJson})`
+      );
+
+      if (!result.success) {
+        return this.createErrorResult(
+          action,
+          result.error || "Extract failed",
+          startTime
+        );
+      }
+
+      const screenshot = await this.captureScreenshot(tab);
+
+      return {
+        success: true,
+        action,
+        data: result.data,
+        screenshot,
+        duration: Date.now() - startTime,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      return this.createErrorResult(action, String(error), startTime);
+    }
+  }
+
+  private async executeGetText(
+    action: GetTextAction,
+    tab: Tab
+  ): Promise<ExecutionResult> {
+    const startTime = Date.now();
+
+    try {
+      await ensureHelperScript(tab);
+
+      const result = await tab.runJs(
+        `window.__agentHelpers.getText('${this.escapeString(action.parameters.selector)}')`
+      );
+
+      if (!result.success) {
+        return this.createErrorResult(
+          action,
+          result.error || "Get text failed",
+          startTime
+        );
+      }
+
+      return {
+        success: true,
+        action,
+        data: { text: result.text },
+        duration: Date.now() - startTime,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      return this.createErrorResult(action, String(error), startTime);
+    }
+  }
+
+  private async executeGetAttribute(
+    action: GetAttributeAction,
+    tab: Tab
+  ): Promise<ExecutionResult> {
+    const startTime = Date.now();
+
+    try {
+      await ensureHelperScript(tab);
+
+      const result = await tab.runJs(
+        `window.__agentHelpers.getAttribute('${this.escapeString(action.parameters.selector)}', '${action.parameters.attribute}')`
+      );
+
+      if (!result.success) {
+        return this.createErrorResult(
+          action,
+          result.error || "Get attribute failed",
+          startTime
+        );
+      }
+
+      return {
+        success: true,
+        action,
+        data: { value: result.value },
+        duration: Date.now() - startTime,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      return this.createErrorResult(action, String(error), startTime);
+    }
+  }
+
+  private async executeWait(action: WaitAction): Promise<ExecutionResult> {
+    const startTime = Date.now();
+
+    try {
+      await this.wait(action.parameters.ms);
+
+      return {
+        success: true,
+        action,
+        duration: Date.now() - startTime,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      return this.createErrorResult(action, String(error), startTime);
+    }
+  }
+
+  private async executeWaitForElement(
+    action: WaitForElementAction,
+    tab: Tab
+  ): Promise<ExecutionResult> {
+    const startTime = Date.now();
+
+    try {
+      await ensureHelperScript(tab);
+
+      const result = await tab.runJs(
+        `window.__agentHelpers.waitForElement('${this.escapeString(action.parameters.selector)}', ${action.parameters.timeout})`
+      );
+
+      if (!result.success) {
+        return this.createErrorResult(
+          action,
+          result.error || "Element not found within timeout",
+          startTime
+        );
+      }
+
+      const screenshot = await this.captureScreenshot(tab);
+
+      return {
+        success: true,
+        action,
+        data: result,
+        screenshot,
+        duration: Date.now() - startTime,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      return this.createErrorResult(action, String(error), startTime);
+    }
+  }
+
+  private async executeCreateTab(
+    action: CreateTabAction
+  ): Promise<ExecutionResult> {
+    const startTime = Date.now();
+
+    try {
+      const newTab = this.window.createTab(action.parameters.url);
+      await this.wait(500);
+
+      if (action.parameters.url) {
+        await waitForPageLoad(newTab, 10000);
+        await ensureHelperScript(newTab);
+      }
+
+      return {
+        success: true,
+        action,
+        data: { tabId: newTab.id },
+        duration: Date.now() - startTime,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      return this.createErrorResult(action, String(error), startTime);
+    }
+  }
+
+  private async executeSwitchTab(
+    action: SwitchTabAction
+  ): Promise<ExecutionResult> {
+    const startTime = Date.now();
+
+    try {
+      const success = this.window.switchActiveTab(action.parameters.tabId);
+
+      if (!success) {
+        return this.createErrorResult(action, "Tab not found", startTime);
+      }
+
+      await this.wait(300);
+
+      return {
+        success: true,
+        action,
+        duration: Date.now() - startTime,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      return this.createErrorResult(action, String(error), startTime);
+    }
+  }
+
+  private async executeCloseTab(
+    action: CloseTabAction
+  ): Promise<ExecutionResult> {
+    const startTime = Date.now();
+
+    try {
+      const success = this.window.closeTab(action.parameters.tabId);
+
+      if (!success) {
+        return this.createErrorResult(action, "Tab not found", startTime);
+      }
+
+      return {
+        success: true,
+        action,
+        duration: Date.now() - startTime,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      return this.createErrorResult(action, String(error), startTime);
+    }
+  }
+
+  private async executeComplete(
+    action: CompleteAction
+  ): Promise<ExecutionResult> {
+    const startTime = Date.now();
+
+    return {
+      success: true,
+      action,
+      data: {
+        reason: action.parameters.reason,
+        result: action.parameters.data,
+      },
+      duration: Date.now() - startTime,
+      timestamp: new Date(),
+    };
+  }
+
+  private async captureScreenshot(tab: Tab): Promise<string | undefined> {
+    if (!this.config.captureScreenshots) {
+      return undefined;
+    }
+
+    try {
+      const image = await tab.screenshot();
+      return image.toDataURL();
+    } catch (error) {
+      console.error("Error capturing screenshot:", error);
+      return undefined;
+    }
+  }
+
+  private async wait(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private escapeString(str: string): string {
+    return str.replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, "\\n");
+  }
+
+  private createErrorResult(
+    action: AgentAction,
+    error: string,
+    startTime: number
+  ): ExecutionResult {
+    return {
+      success: false,
+      action,
+      error,
+      duration: Date.now() - startTime,
+      timestamp: new Date(),
+    };
+  }
+}
