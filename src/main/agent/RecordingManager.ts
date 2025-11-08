@@ -54,7 +54,7 @@ export class RecordingManager {
    * Start recording user interactions
    */
   async startRecording(tabId?: string): Promise<string> {
-    const activeTab = tabId ? this.window.getTab(tabId) : this.window.getActiveTab();
+    const activeTab = tabId ? this.window.getTab(tabId) : this.window.activeTab;
 
     if (!activeTab) {
       throw new Error("No active tab to record");
