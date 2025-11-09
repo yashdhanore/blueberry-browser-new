@@ -47,6 +47,9 @@ export const RecorderPanel: React.FC = () => {
   const [isPaused, setIsPaused] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [recipeName, setRecipeName] = useState('');
+  const [recipeDescription, setRecipeDescription] = useState('');
 
   // Load tabs on mount
   useEffect(() => {
@@ -170,8 +173,13 @@ export const RecorderPanel: React.FC = () => {
     }
   };
 
-  const handleSaveAsRecipe = async () => {
-    console.log('handleSaveAsRecipe called, recording:', recording);
+  const handleSaveAsRecipe = () => {
+    console.log('handleSaveAsRecipe called, opening dialog');
+    setShowSaveDialog(true);
+  };
+
+  const handleConfirmSave = async () => {
+    console.log('handleConfirmSave called, recording:', recording);
 
     if (!recording) {
       console.error('No recording available');
@@ -179,25 +187,21 @@ export const RecorderPanel: React.FC = () => {
       return;
     }
 
-    console.log('Recording has', recording.steps.length, 'steps');
-
-    const name = window.prompt('Enter a name for this recipe:');
-    console.log('User entered name:', name);
-
-    if (!name) {
-      console.log('No name provided, cancelling');
+    if (!recipeName.trim()) {
+      setError('Please enter a recipe name');
       return;
     }
 
-    const description = window.prompt('Enter a description (optional):');
-    console.log('User entered description:', description);
+    console.log('Recording has', recording.steps.length, 'steps');
+    console.log('User entered name:', recipeName);
+    console.log('User entered description:', recipeDescription);
 
     try {
       console.log('Calling chromeRecordingSaveAsRecipe...');
       const response = await window.sidebarAPI.chromeRecordingSaveAsRecipe(
         recording,
-        name,
-        description || undefined
+        recipeName,
+        recipeDescription || undefined
       );
 
       console.log('Save recipe response:', response);
@@ -207,12 +211,20 @@ export const RecorderPanel: React.FC = () => {
       }
 
       console.log('Recipe saved successfully with ID:', response.recipeId);
-      window.alert(`Recipe "${name}" saved successfully!`);
+      setShowSaveDialog(false);
+      setRecipeName('');
+      setRecipeDescription('');
       handleDiscard();
     } catch (err) {
       console.error('Error saving recipe:', err);
       setError(err instanceof Error ? err.message : 'Failed to save recipe');
     }
+  };
+
+  const handleCancelSave = () => {
+    setShowSaveDialog(false);
+    setRecipeName('');
+    setRecipeDescription('');
   };
 
   const handleDiscard = () => {
@@ -246,6 +258,65 @@ export const RecorderPanel: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-background text-foreground">
+      {/* Save Recipe Dialog */}
+      {showSaveDialog && (
+        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-background border border-border rounded-lg p-4 m-4 max-w-md w-full">
+            <h3 className="text-lg font-semibold mb-4">Save Recording as Recipe</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Recipe Name *
+                </label>
+                <input
+                  type="text"
+                  value={recipeName}
+                  onChange={(e) => setRecipeName(e.target.value)}
+                  placeholder="My Recording"
+                  className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Description (optional)
+                </label>
+                <textarea
+                  value={recipeDescription}
+                  onChange={(e) => setRecipeDescription(e.target.value)}
+                  placeholder="What does this recipe do?"
+                  rows={3}
+                  className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {error && (
+                <div className="p-2 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded text-sm text-red-600 dark:text-red-400">
+                  {error}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={handleConfirmSave}
+                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+                >
+                  Save Recipe
+                </button>
+                <button
+                  onClick={handleCancelSave}
+                  className="flex-1 px-4 py-2 bg-secondary hover:bg-secondary/80 text-foreground rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="p-4 border-b border-border">
         <h2 className="text-lg font-semibold flex items-center gap-2">
