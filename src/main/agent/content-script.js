@@ -2,105 +2,85 @@
   "use strict";
 
   if (window.__agentHelpers) {
-    console.log("🤖 Agent helpers already injected");
     return;
   }
 
   function findElement(selector) {
     try {
-      // Try CSS selector first, but catch invalid selector syntax
-      try {
-        let element = document.querySelector(selector);
-        if (element) return element;
-      } catch (selectorError) {
-        // Invalid CSS selector (e.g., :contains() is not valid), continue to fallback methods
-        console.debug('Invalid CSS selector, trying fallback methods:', selector);
-      }
-
-      if (selector.startsWith("#")) {
-        const element = document.getElementById(selector.substring(1));
-        if (element) return element;
-      }
-
-      if (selector.startsWith("//")) {
-        const result = document.evaluate(
-          selector,
-          document,
-          null,
-          XPathResult.FIRST_ORDERED_NODE_TYPE,
-          null
-        );
-        const element = result.singleNodeValue;
-        if (element) return element;
-      }
-
-      // Try XPath text search
-      try {
-        const textSelector = `//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '${selector.toLowerCase().replace(/'/g, "''")}')]`;
-        const textResult = document.evaluate(
-          textSelector,
-          document,
-          null,
-          XPathResult.FIRST_ORDERED_NODE_TYPE,
-          null
-        );
-        const element = textResult.singleNodeValue;
-        if (element) return element;
-      } catch (xpathError) {
-        // XPath failed, continue to other methods
-      }
-
-      // Try attribute selectors (with error handling)
-      try {
-        const element = document.querySelector(`[aria-label*="${selector}" i]`);
-        if (element) return element;
-      } catch (e) {
-        // Invalid selector, continue
-      }
-
-      try {
-        const element = document.querySelector(`[placeholder*="${selector}" i]`);
-        if (element) return element;
-      } catch (e) {
-        // Invalid selector, continue
-      }
-
-      // Try text-based search on buttons
-      const buttons = Array.from(
-        document.querySelectorAll('button, [role="button"]')
-      );
-      const buttonElement = buttons.find((btn) =>
-        btn.textContent.toLowerCase().includes(selector.toLowerCase())
-      );
-      if (buttonElement) return buttonElement;
-
-      // Try text-based search on links
-      const links = Array.from(document.querySelectorAll("a"));
-      const linkElement = links.find((link) =>
-        link.textContent.toLowerCase().includes(selector.toLowerCase())
-      );
-      if (linkElement) return linkElement;
-
-      return null;
-    } catch (error) {
-      console.error("Error finding element:", error);
-      return null;
+      const element = document.querySelector(selector);
+      if (element) return element;
+    } catch (selectorError) {
+      // Invalid CSS selector, continue to fallback methods
     }
+
+    if (selector.startsWith("#")) {
+      const element = document.getElementById(selector.substring(1));
+      if (element) return element;
+    }
+
+    if (selector.startsWith("//")) {
+      const result = document.evaluate(
+        selector,
+        document,
+        null,
+        XPathResult.FIRST_ORDERED_NODE_TYPE,
+        null
+      );
+      const element = result.singleNodeValue;
+      if (element) return element;
+    }
+
+    try {
+      const textSelector = `//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '${selector.toLowerCase().replace(/'/g, "''")}')]`;
+      const textResult = document.evaluate(
+        textSelector,
+        document,
+        null,
+        XPathResult.FIRST_ORDERED_NODE_TYPE,
+        null
+      );
+      const element = textResult.singleNodeValue;
+      if (element) return element;
+    } catch (xpathError) {
+      // XPath failed, continue
+    }
+
+    try {
+      const element = document.querySelector(`[aria-label*="${selector}" i]`);
+      if (element) return element;
+    } catch (e) {
+      // Invalid selector, continue
+    }
+
+    try {
+      const element = document.querySelector(`[placeholder*="${selector}" i]`);
+      if (element) return element;
+    } catch (e) {
+      // Invalid selector, continue
+    }
+
+    const buttons = Array.from(
+      document.querySelectorAll('button, [role="button"]')
+    );
+    const buttonElement = buttons.find((btn) =>
+      btn.textContent.toLowerCase().includes(selector.toLowerCase())
+    );
+    if (buttonElement) return buttonElement;
+
+    const links = Array.from(document.querySelectorAll("a"));
+    const linkElement = links.find((link) =>
+      link.textContent.toLowerCase().includes(selector.toLowerCase())
+    );
+    if (linkElement) return linkElement;
+
+    return null;
   }
 
   function findElements(selector) {
     try {
-      // Try CSS selector first, but catch invalid selector syntax
-      try {
-        const elements = document.querySelectorAll(selector);
-        return Array.from(elements);
-      } catch (selectorError) {
-        // Invalid CSS selector, return empty array
-        console.debug('Invalid CSS selector for findElements, returning empty array:', selector);
-        return [];
-      }
+      const elements = document.querySelectorAll(selector);
+      return Array.from(elements);
     } catch (error) {
-      console.error("Error finding elements:", error);
       return [];
     }
   }
@@ -338,13 +318,11 @@
         if (!config.selector) continue;
 
         if (config.multiple) {
-          // findElements already handles invalid selectors gracefully
           const elements = findElements(config.selector);
           results[key] = elements
             .map((el) => extractValue(el, config.type))
             .filter((v) => v);
         } else {
-          // findElement already handles invalid selectors gracefully
           const element = findElement(config.selector);
           if (element) {
             results[key] = extractValue(element, config.type);
@@ -531,6 +509,4 @@
     scrollIntoView,
     version: "1.0.0",
   };
-
-  console.log("🤖 Agent helper script injected successfully (v1.0.0)");
 })();

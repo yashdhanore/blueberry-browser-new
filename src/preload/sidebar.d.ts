@@ -125,7 +125,55 @@ interface LoadRecipeResponse extends AgentAPIResponse {
 }
 
 interface ListRecipesResponse extends AgentAPIResponse {
-  recipes?: string[];
+  recipes?: any[];
+}
+
+interface GetRecipeResponse extends AgentAPIResponse {
+  recipe?: any;
+}
+
+interface PuppeteerRecording {
+  title: string;
+  steps: any[];
+  timeout?: number;
+}
+
+interface ChromeRecordingSession {
+  id: string;
+  tabId: string;
+  startTime: number;
+  isRecording: boolean;
+  isPaused: boolean;
+  recording: PuppeteerRecording;
+}
+
+interface RecordingAPIResponse {
+  success: boolean;
+  error?: string;
+}
+
+interface StartRecordingResponse extends RecordingAPIResponse {
+  sessionId?: string;
+}
+
+interface StopRecordingResponse extends RecordingAPIResponse {
+  recording?: PuppeteerRecording;
+}
+
+interface GetRecordingResponse extends RecordingAPIResponse {
+  recording?: PuppeteerRecording;
+}
+
+interface ListSessionsResponse extends RecordingAPIResponse {
+  sessions?: ChromeRecordingSession[];
+}
+
+interface SaveRecipeResponse extends RecordingAPIResponse {
+  recipeId?: string;
+}
+
+interface ImportRecordingResponse extends RecordingAPIResponse {
+  recording?: PuppeteerRecording;
 }
 
 interface SidebarAPI {
@@ -170,9 +218,34 @@ interface SidebarAPI {
     name: string,
     description?: string
   ) => Promise<AgentAPIResponse>;
-  loadAgentRecipe: (recipeName: string) => Promise<LoadRecipeResponse>;
+  loadAgentRecipe: (recipeId: string) => Promise<LoadRecipeResponse>;
   listAgentRecipes: () => Promise<ListRecipesResponse>;
-  deleteAgentRecipe: (recipeName: string) => Promise<AgentAPIResponse>;
+  deleteAgentRecipe: (recipeId: string) => Promise<AgentAPIResponse>;
+  getAgentRecipe: (recipeId: string) => Promise<GetRecipeResponse>;
+
+  // Chrome Recording APIs
+  chromeRecordingStart: (tabId: string) => Promise<StartRecordingResponse>;
+  chromeRecordingStop: (sessionId: string) => Promise<StopRecordingResponse>;
+  chromeRecordingPause: (sessionId: string) => Promise<RecordingAPIResponse>;
+  chromeRecordingResume: (sessionId: string) => Promise<RecordingAPIResponse>;
+  chromeRecordingGet: (sessionId: string) => Promise<GetRecordingResponse>;
+  chromeRecordingListSessions: () => Promise<ListSessionsResponse>;
+  chromeRecordingSaveAsRecipe: (
+    recording: PuppeteerRecording,
+    name: string,
+    description?: string
+  ) => Promise<SaveRecipeResponse>;
+  chromeRecordingExport: (
+    sessionId: string,
+    filepath: string
+  ) => Promise<RecordingAPIResponse>;
+  chromeRecordingImport: (filepath: string) => Promise<ImportRecordingResponse>;
+
+  // Tab management APIs
+  getTabs: () => Promise<TabInfo[]>;
+  createTab: (url?: string) => Promise<TabInfo>;
+  closeTab: (tabId: string) => Promise<void>;
+  switchTab: (tabId: string) => Promise<void>;
 }
 
 declare global {
@@ -201,5 +274,15 @@ export type {
   ListAgentsResponse,
   LoadRecipeResponse,
   ListRecipesResponse,
+  GetRecipeResponse,
   SidebarAPI,
+  PuppeteerRecording,
+  ChromeRecordingSession,
+  RecordingAPIResponse,
+  StartRecordingResponse,
+  StopRecordingResponse,
+  GetRecordingResponse,
+  ListSessionsResponse,
+  SaveRecipeResponse,
+  ImportRecordingResponse,
 };

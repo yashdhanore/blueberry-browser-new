@@ -26,6 +26,8 @@ import { AgentExecutor } from "./AgentExecutor";
 import { ensureHelperScript } from "./AgentActions";
 import { extractInteractiveElements } from "./DOMHelpers";
 import { WebContents } from "electron";
+import { RecipesManager } from "./RecipesManager";
+import type { RecipeWithMetadata } from "./RecipesManager";
 
 // ============================================================================
 // AGENT MANAGER CLASS
@@ -38,12 +40,14 @@ export class AgentManager {
   private executor: AgentExecutor;
   private config: AgentConfig;
   private webContents: WebContents | null = null;
+  private recipesManager: RecipesManager;
 
   constructor(window: Window, config: Partial<AgentConfig> = {}) {
     this.window = window;
     this.config = { ...DEFAULT_AGENT_CONFIG, ...config };
     this.planner = new AgentPlanner();
     this.executor = new AgentExecutor(window, this.config);
+    this.recipesManager = new RecipesManager();
   }
 
   setWebContents(webContents: WebContents): void {
@@ -385,7 +389,7 @@ export class AgentManager {
   // RECIPE MANAGEMENT
   // ============================================================================
 
-  saveRecipe(agentId: string, name: string, description: string = ""): void {
+  saveRecipe(agentId: string, name: string, description: string = ""): string {
     const state = this.agents.get(agentId);
     if (!state) {
       throw new Error(`Agent ${agentId} not found`);
@@ -405,20 +409,85 @@ export class AgentManager {
       useCount: 0,
     };
 
-    console.log(`💾 Saved recipe: ${name}`);
-    console.log(JSON.stringify(recipe, null, 2));
+    const recipeId = this.recipesManager.saveRecipe(recipe);
+    console.log(`💾 Saved recipe: ${name} (${recipeId})`);
+
+    return recipeId;
   }
 
-  async loadRecipe(recipeName: string): Promise<string> {
-    throw new Error("Recipe loading not yet implemented");
+  async loadRecipe(recipeId: string, tabId: string): Promise<string> {
+    const recipe = this.recipesManager.loadRecipe(recipeId);
+    if (!recipe) {
+      throw new Error(`Recipe ${recipeId} not found`);
+    }
+
+    // Create a new agent with the recipe's actions
+    const agentId = this.createAgent(recipe.goal, tabId);
+    const state = this.agents.get(agentId);
+    if (!state) {
+      throw new Error(`Failed to create agent for recipe`);
+    }
+
+    // Update use count
+    this.recipesManager.updateRecipeUsage(recipeId);
+
+    // Execute the recipe actions
+    await this.executeRecipe(agentId, recipe.actions);
+
+    return agentId;
   }
 
-  listRecipes(): string[] {
-    return [];
+  async executeRecipe(agentId: string, actions: AgentAction[]): Promise<void> {
+    const state = this.agents.get(agentId);
+    if (!state) {
+      throw new Error(`Agent ${agentId} not found`);
+    }
+
+    const tab = this.window.getTab(state.goal.tabId);
+    if (!tab) {
+      this.failAgent(agentId, `Tab ${state.goal.tabId} not found`);
+      return;
+    }
+
+    state.status = AgentStatus.EXECUTING;
+    state.startedAt = new Date();
+    this.notifyStatusUpdate(agentId);
+
+    for (const action of actions) {
+      if (state.status === AgentStatus.STOPPED || state.status === AgentStatus.PAUSED) {
+        break;
+      }
+
+      state.currentAction = action;
+      this.notifyStatusUpdate(agentId);
+      this.notifyActionExecuted(agentId, action);
+
+      const result = await this.executor.executeAction(action, tab);
+      state.actionHistory.push(result);
+      state.currentAction = null;
+
+      if (!result.success) {
+        console.error(`Recipe action failed: ${result.error}`);
+        // Continue with next action even if one fails
+      }
+
+      this.notifyStatusUpdate(agentId);
+      await this.wait(this.config.actionDelay);
+    }
+
+    this.completeAgent(agentId);
   }
 
-  deleteRecipe(recipeName: string): void {
-    throw new Error("Recipe deletion not yet implemented");
+  listRecipes(): RecipeWithMetadata[] {
+    return this.recipesManager.listRecipes();
+  }
+
+  deleteRecipe(recipeId: string): boolean {
+    return this.recipesManager.deleteRecipe(recipeId);
+  }
+
+  getRecipeById(recipeId: string): RecipeWithMetadata | null {
+    return this.recipesManager.loadRecipe(recipeId);
   }
 
   // ============================================================================
@@ -500,6 +569,8 @@ export class AgentManager {
         this.stopAgent(agentId);
       }
     }
+
+    this.recipesManager.cleanup();
   }
 }
 

@@ -1,17 +1,18 @@
 /**
  * Sidebar App
- * 
- * Main sidebar application with tab switching between Chat and Agent modes.
+ *
+ * Main sidebar application with tab switching between Chat, Agent, and Recorder modes.
  */
 
 import React, { useEffect, useState } from 'react';
 import { ChatProvider } from './contexts/ChatContext';
 import { Chat } from './components/Chat';
 import { AgentPanel } from './components/Agentpanel';
+import { RecorderPanel } from './components/RecorderPanel';
 import { useDarkMode } from '@common/hooks/useDarkMode';
-import { MessageSquare, Brain } from 'lucide-react';
+import { MessageSquare, Brain, Video } from 'lucide-react';
 
-type TabMode = 'chat' | 'agent';
+type TabMode = 'chat' | 'agent' | 'recorder';
 
 const SidebarContent: React.FC = () => {
   const { isDarkMode } = useDarkMode();
@@ -31,30 +32,45 @@ const SidebarContent: React.FC = () => {
       <div className="flex border-b border-border bg-background">
         <button
           onClick={() => setActiveTab('chat')}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors relative ${
+          className={`flex-1 flex items-center justify-center gap-2 px-3 py-3 text-sm font-medium transition-colors relative ${
             activeTab === 'chat'
               ? 'text-foreground'
               : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           <MessageSquare className="w-4 h-4" />
-          <span>Chat</span>
+          <span className="hidden sm:inline">Chat</span>
           {activeTab === 'chat' && (
             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
           )}
         </button>
-        
+
         <button
           onClick={() => setActiveTab('agent')}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors relative ${
+          className={`flex-1 flex items-center justify-center gap-2 px-3 py-3 text-sm font-medium transition-colors relative ${
             activeTab === 'agent'
               ? 'text-foreground'
               : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           <Brain className="w-4 h-4" />
-          <span>Agent</span>
+          <span className="hidden sm:inline">Agent</span>
           {activeTab === 'agent' && (
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('recorder')}
+          className={`flex-1 flex items-center justify-center gap-2 px-3 py-3 text-sm font-medium transition-colors relative ${
+            activeTab === 'recorder'
+              ? 'text-foreground'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          <Video className="w-4 h-4" />
+          <span className="hidden sm:inline">Record</span>
+          {activeTab === 'recorder' && (
             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
           )}
         </button>
@@ -62,7 +78,13 @@ const SidebarContent: React.FC = () => {
 
       {/* Content Area */}
       <div className="flex-1 overflow-hidden">
-        {activeTab === 'chat' ? <Chat /> : <AgentPanel />}
+        {activeTab === 'chat' ? (
+          <Chat />
+        ) : activeTab === 'agent' ? (
+          <AgentPanel />
+        ) : (
+          <RecorderPanel />
+        )}
       </div>
     </div>
   );

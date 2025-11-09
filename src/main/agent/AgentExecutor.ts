@@ -52,16 +52,9 @@ export class AgentExecutor {
     const startTime = Date.now();
 
     try {
-      // Log action execution details
-      console.log("🔨 Executing Action:");
-      console.log(`   Type: ${action.type}`);
-      console.log(`   Parameters: ${JSON.stringify(action.parameters, null, 2)}`);
-      console.log(`   Reasoning: ${action.reasoning || 'N/A'}`);
-      console.log(`   Retry Count: ${retryCount}/${this.config.maxRetries}`);
-
       const validationError = validateAction(action);
       if (validationError) {
-        console.error(`   ❌ Validation Error: ${validationError}`);
+        console.error(`Validation Error: ${validationError}`);
         return this.createErrorResult(action, validationError, startTime);
       }
 
@@ -137,23 +130,8 @@ export class AgentExecutor {
       }
 
       if (!result.success && retryCount < this.config.maxRetries) {
-        console.log(
-          `   ⚠️  Action failed, retrying (attempt ${retryCount + 1}/${this.config.maxRetries})`
-        );
-        if (result.error) {
-          console.log(`   Error: ${result.error}`);
-        }
         await this.wait(1000);
         return this.executeAction(action, tab, retryCount + 1);
-      }
-
-      if (result.success) {
-        console.log(`   ✅ Action succeeded (${Date.now() - startTime}ms)`);
-      } else {
-        console.log(`   ❌ Action failed (${Date.now() - startTime}ms)`);
-        if (result.error) {
-          console.log(`   Error: ${result.error}`);
-        }
       }
 
       return result;
@@ -163,15 +141,9 @@ export class AgentExecutor {
       console.error("Error executing action:", error);
 
       if (retryCount < this.config.maxRetries) {
-        console.log(
-          `   ⚠️  Exception occurred, retrying (attempt ${retryCount + 1}/${this.config.maxRetries})`
-        );
-        console.log(`   Exception: ${errorMessage}`);
         await this.wait(1000);
         return this.executeAction(action, tab, retryCount + 1);
       }
-
-      console.error(`   ❌ Action failed after ${retryCount + 1} attempts: ${errorMessage}`);
       return this.createErrorResult(action, errorMessage, startTime);
     }
   }
@@ -297,39 +269,106 @@ export class AgentExecutor {
     try {
       await ensureHelperScript(tab);
 
-      const selector = action.parameters.selector;
-      console.log(`   🖱️  Attempting to click element with selector: "${selector}"`);
-      
-      const result = await tab.runJs(
-        `window.__agentHelpers.click('${this.escapeString(selector)}')`
-      );
+      const selectors = action.parameters.selectors;
 
-      if (!result.success) {
-        console.error(`   ❌ Click failed: ${result.error || "Unknown error"}`);
+      if (selectors && Array.isArray(selectors) && selectors.length > 0) {
+        for (let i = 0; i < selectors.length; i++) {
+          const selectorArray = selectors[i];
+          if (!Array.isArray(selectorArray) || selectorArray.length === 0)
+            continue;
+
+          for (const selector of selectorArray) {
+            try {
+              const result = await this.tryClickWithSelector(
+                selector,
+                action,
+                tab
+              );
+
+              if (result.success) {
+                await this.wait(this.config.actionDelay);
+                const screenshot = await this.captureScreenshot(tab);
+
+                return {
+                  success: true,
+                  action,
+                  data: result,
+                  screenshot,
+                  duration: Date.now() - startTime,
+                  timestamp: new Date(),
+                };
+              }
+            } catch (e) {
+              continue;
+            }
+          }
+        }
+
         return this.createErrorResult(
           action,
-          result.error || "Click failed",
+          "All selector strategies failed",
           startTime
         );
+      } else {
+        const selector = action.parameters.selector;
+        const result = await tab.runJs(
+          `window.__agentHelpers.click('${this.escapeString(selector)}')`
+        );
+
+        if (!result.success) {
+          return this.createErrorResult(
+            action,
+            result.error || "Click failed",
+            startTime
+          );
+        }
+
+        await this.wait(this.config.actionDelay);
+
+        const screenshot = await this.captureScreenshot(tab);
+
+        return {
+          success: true,
+          action,
+          data: result,
+          screenshot,
+          duration: Date.now() - startTime,
+          timestamp: new Date(),
+        };
       }
-      
-      console.log(`   ✅ Click succeeded on: ${result.element || 'element'}${result.text ? ` (${result.text})` : ''}`);
-
-      await this.wait(this.config.actionDelay);
-
-      const screenshot = await this.captureScreenshot(tab);
-
-      return {
-        success: true,
-        action,
-        data: result,
-        screenshot,
-        duration: Date.now() - startTime,
-        timestamp: new Date(),
-      };
     } catch (error) {
       return this.createErrorResult(action, String(error), startTime);
     }
+  }
+
+  private async tryClickWithSelector(
+    selector: string,
+    _action: ClickAction,
+    tab: Tab
+  ): Promise<{
+    success: boolean;
+    element?: string;
+    text?: string;
+    error?: string;
+  }> {
+    let jsSelector = selector;
+
+    if (selector.startsWith("xpath/")) {
+      const xpath = selector.substring(6);
+      jsSelector = `xpath:${xpath}`;
+    } else if (selector.startsWith("aria/")) {
+      const ariaLabel = selector.substring(5);
+      jsSelector = `[aria-label="${ariaLabel}"]`;
+    } else if (selector.startsWith("text/")) {
+      const text = selector.substring(5);
+      jsSelector = `text:${text}`;
+    } else if (selector.startsWith("pierce/")) {
+      jsSelector = selector.substring(7);
+    }
+
+    return await tab.runJs(
+      `window.__agentHelpers.click('${this.escapeString(jsSelector)}')`
+    );
   }
 
   private async executeType(
@@ -341,35 +380,103 @@ export class AgentExecutor {
     try {
       await ensureHelperScript(tab);
 
+      const selectors = action.parameters.selectors;
       const clear = action.parameters.clear || false;
-      const result = await tab.runJs(
-        `window.__agentHelpers.type('${this.escapeString(action.parameters.selector)}', '${this.escapeString(action.parameters.text)}', ${clear})`
-      );
+      const text = action.parameters.text;
 
-      if (!result.success) {
+      if (selectors && Array.isArray(selectors) && selectors.length > 0) {
+        for (let i = 0; i < selectors.length; i++) {
+          const selectorArray = selectors[i];
+          if (!Array.isArray(selectorArray) || selectorArray.length === 0)
+            continue;
+
+          for (const selector of selectorArray) {
+            try {
+              const result = await this.tryTypeWithSelector(
+                selector,
+                text,
+                clear,
+                tab
+              );
+
+              if (result.success) {
+                const typingDuration = text.length * 50 + 500;
+                await this.wait(Math.min(typingDuration, 3000));
+                const screenshot = await this.captureScreenshot(tab);
+
+                return {
+                  success: true,
+                  action,
+                  data: result,
+                  screenshot,
+                  duration: Date.now() - startTime,
+                  timestamp: new Date(),
+                };
+              }
+            } catch (e) {
+              continue;
+            }
+          }
+        }
+
         return this.createErrorResult(
           action,
-          result.error || "Type failed",
+          "All selector strategies failed",
           startTime
         );
+      } else {
+        const result = await tab.runJs(
+          `window.__agentHelpers.type('${this.escapeString(action.parameters.selector)}', '${this.escapeString(text)}', ${clear})`
+        );
+
+        if (!result.success) {
+          return this.createErrorResult(
+            action,
+            result.error || "Type failed",
+            startTime
+          );
+        }
+
+        const typingDuration = text.length * 50 + 500;
+        await this.wait(Math.min(typingDuration, 3000));
+
+        const screenshot = await this.captureScreenshot(tab);
+
+        return {
+          success: true,
+          action,
+          data: result,
+          screenshot,
+          duration: Date.now() - startTime,
+          timestamp: new Date(),
+        };
       }
-
-      const typingDuration = action.parameters.text.length * 50 + 500;
-      await this.wait(Math.min(typingDuration, 3000));
-
-      const screenshot = await this.captureScreenshot(tab);
-
-      return {
-        success: true,
-        action,
-        data: result,
-        screenshot,
-        duration: Date.now() - startTime,
-        timestamp: new Date(),
-      };
     } catch (error) {
       return this.createErrorResult(action, String(error), startTime);
     }
+  }
+
+  private async tryTypeWithSelector(
+    selector: string,
+    text: string,
+    clear: boolean,
+    tab: Tab
+  ): Promise<{ success: boolean; text?: string; error?: string }> {
+    let jsSelector = selector;
+
+    if (selector.startsWith("xpath/")) {
+      jsSelector = `xpath:${selector.substring(6)}`;
+    } else if (selector.startsWith("aria/")) {
+      jsSelector = `[aria-label="${selector.substring(5)}"]`;
+    } else if (selector.startsWith("text/")) {
+      jsSelector = `text:${selector.substring(5)}`;
+    } else if (selector.startsWith("pierce/")) {
+      jsSelector = selector.substring(7);
+    }
+
+    return await tab.runJs(
+      `window.__agentHelpers.type('${this.escapeString(jsSelector)}', '${this.escapeString(text)}', ${clear})`
+    );
   }
 
   private async executeSelect(
