@@ -157,18 +157,17 @@ export class ChromeRecorder {
       // Attach debugger
       await this.attachDebugger(webContents, sessionId);
 
+      // Enable CDP domains
+      // Note: Input domain is not available in Electron's CDP, but we don't need it
+      // since we capture events via injected script
       try {
-        await this.sendDebuggerCommand(webContents, "Input.enable");
+        await this.sendDebuggerCommand(webContents, "Page.enable");
+        await this.sendDebuggerCommand(webContents, "Runtime.enable");
+        await this.sendDebuggerCommand(webContents, "DOM.enable");
       } catch (error) {
-        console.warn(
-          "Input.enable not available, continuing without it:",
-          error
-        );
+        console.warn("Error enabling CDP domains:", error);
+        // Continue anyway - injected script will handle event capture
       }
-
-      await this.sendDebuggerCommand(webContents, "Page.enable");
-      await this.sendDebuggerCommand(webContents, "Runtime.enable");
-      await this.sendDebuggerCommand(webContents, "DOM.enable");
 
       // Inject selector generator script
       await this.injectHelperScript(webContents);

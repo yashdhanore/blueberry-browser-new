@@ -118,17 +118,22 @@ export const RecorderPanel: React.FC = () => {
     if (!currentSession) return;
 
     try {
+      console.log('Stopping recording session:', currentSession.id);
       const response = await window.sidebarAPI.chromeRecordingStop(currentSession.id);
+
+      console.log('Stop recording response:', response);
 
       if (!response.success || !response.recording) {
         throw new Error(response.error || 'Failed to stop recording');
       }
 
+      console.log('Recording stopped successfully, steps:', response.recording.steps.length);
       setRecording(response.recording);
       setIsRecording(false);
       setIsPaused(false);
       setCurrentSession(null);
     } catch (err) {
+      console.error('Error stopping recording:', err);
       setError(err instanceof Error ? err.message : 'Failed to stop recording');
     }
   };
@@ -166,27 +171,46 @@ export const RecorderPanel: React.FC = () => {
   };
 
   const handleSaveAsRecipe = async () => {
-    if (!recording) return;
+    console.log('handleSaveAsRecipe called, recording:', recording);
 
-    const name = prompt('Enter a name for this recipe:');
-    if (!name) return;
+    if (!recording) {
+      console.error('No recording available');
+      setError('No recording available');
+      return;
+    }
 
-    const description = prompt('Enter a description (optional):');
+    console.log('Recording has', recording.steps.length, 'steps');
+
+    const name = window.prompt('Enter a name for this recipe:');
+    console.log('User entered name:', name);
+
+    if (!name) {
+      console.log('No name provided, cancelling');
+      return;
+    }
+
+    const description = window.prompt('Enter a description (optional):');
+    console.log('User entered description:', description);
 
     try {
+      console.log('Calling chromeRecordingSaveAsRecipe...');
       const response = await window.sidebarAPI.chromeRecordingSaveAsRecipe(
         recording,
         name,
         description || undefined
       );
 
+      console.log('Save recipe response:', response);
+
       if (!response.success) {
         throw new Error(response.error || 'Failed to save recipe');
       }
 
-      alert(`Recipe "${name}" saved successfully!`);
+      console.log('Recipe saved successfully with ID:', response.recipeId);
+      window.alert(`Recipe "${name}" saved successfully!`);
       handleDiscard();
     } catch (err) {
+      console.error('Error saving recipe:', err);
       setError(err instanceof Error ? err.message : 'Failed to save recipe');
     }
   };
