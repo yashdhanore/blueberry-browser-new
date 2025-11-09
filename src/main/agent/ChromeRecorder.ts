@@ -157,8 +157,15 @@ export class ChromeRecorder {
       // Attach debugger
       await this.attachDebugger(webContents, sessionId);
 
-      // Enable CDP domains
-      await this.sendDebuggerCommand(webContents, "Input.enable");
+      try {
+        await this.sendDebuggerCommand(webContents, "Input.enable");
+      } catch (error) {
+        console.warn(
+          "Input.enable not available, continuing without it:",
+          error
+        );
+      }
+
       await this.sendDebuggerCommand(webContents, "Page.enable");
       await this.sendDebuggerCommand(webContents, "Runtime.enable");
       await this.sendDebuggerCommand(webContents, "DOM.enable");
