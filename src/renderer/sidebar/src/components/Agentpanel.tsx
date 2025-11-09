@@ -51,8 +51,14 @@ export const AgentPanel: React.FC = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRecipes, setShowRecipes] = useState(false);
+  const [recipes, setRecipes] = useState<any[]>([]);
+  const [showRecipeSuggestions, setShowRecipeSuggestions] = useState(false);
+  const [filteredRecipes, setFilteredRecipes] = useState<any[]>([]);
 
   useEffect(() => {
+    // Load recipes on mount
+    loadRecipes();
+
     window.sidebarAPI.onAgentStatusUpdate((data) => {
       if (currentAgent && data.agentId === currentAgent.goal.id) {
         setCurrentAgent(data.state);
@@ -76,6 +82,31 @@ export const AgentPanel: React.FC = () => {
     };
   }, [currentAgent]);
 
+  // Watch for recipe command in goal input
+  useEffect(() => {
+    if (goal.startsWith('/')) {
+      const searchTerm = goal.substring(1).toLowerCase();
+      const filtered = recipes.filter((recipe) =>
+        recipe.name.toLowerCase().includes(searchTerm)
+      );
+      setFilteredRecipes(filtered);
+      setShowRecipeSuggestions(filtered.length > 0);
+    } else {
+      setShowRecipeSuggestions(false);
+    }
+  }, [goal, recipes]);
+
+  const loadRecipes = async () => {
+    try {
+      const response = await window.sidebarAPI.listAgentRecipes();
+      if (response.success && response.recipes) {
+        setRecipes(response.recipes);
+      }
+    } catch (err) {
+      console.error('Error loading recipes:', err);
+    }
+  };
+
   const handleCreateAgent = async () => {
     if (!goal.trim()) {
       setError('Please enter a goal for the agent');
@@ -86,8 +117,15 @@ export const AgentPanel: React.FC = () => {
     setError(null);
 
     try {
+      // Check if it's a recipe command
+      if (goal.startsWith('/')) {
+        const recipeName = goal.substring(1).trim();
+        await handleLoadRecipe(recipeName);
+        return;
+      }
+
       const createResponse = await window.sidebarAPI.createAgent(goal);
-      
+
       if (!createResponse.success) {
         throw new Error(createResponse.error || 'Failed to create agent');
       }
@@ -95,13 +133,13 @@ export const AgentPanel: React.FC = () => {
       const agentId = createResponse.agentId!;
 
       const statusResponse = await window.sidebarAPI.getAgentStatus(agentId);
-      
+
       if (statusResponse.success && statusResponse.state) {
         setCurrentAgent(statusResponse.state);
       }
 
       const startResponse = await window.sidebarAPI.startAgent(agentId);
-      
+
       if (!startResponse.success) {
         throw new Error(startResponse.error || 'Failed to start agent');
       }
@@ -112,6 +150,47 @@ export const AgentPanel: React.FC = () => {
     } finally {
       setIsCreating(false);
     }
+  };
+
+  const handleLoadRecipe = async (recipeName: string) => {
+    try {
+      // Find recipe by name (case-insensitive)
+      const recipe = recipes.find(
+        (r) => r.name.toLowerCase() === recipeName.toLowerCase()
+      );
+
+      if (!recipe) {
+        throw new Error(`Recipe "${recipeName}" not found`);
+      }
+
+      console.log('Loading recipe:', recipe.name);
+
+      const response = await window.sidebarAPI.loadAgentRecipe(recipe.id);
+
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to load recipe');
+      }
+
+      // Get the agent status
+      if (response.agentId) {
+        const statusResponse = await window.sidebarAPI.getAgentStatus(response.agentId);
+        if (statusResponse.success && statusResponse.state) {
+          setCurrentAgent(statusResponse.state);
+        }
+      }
+
+      setGoal('');
+      setShowRecipeSuggestions(false);
+    } catch (err) {
+      throw err; // Re-throw to be caught by handleCreateAgent
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleSelectRecipe = (recipe: any) => {
+    setGoal(`/${recipe.name}`);
+    setShowRecipeSuggestions(false);
   };
 
   const handlePauseAgent = async () => {
@@ -245,18 +324,43 @@ export const AgentPanel: React.FC = () => {
       <div className="flex-1 overflow-y-auto">
         {!currentAgent ? (
           <div className="p-4 space-y-4">
-            <div>
+            <div className="relative">
               <label className="block text-sm font-medium mb-2">
                 What should the agent do?
               </label>
               <textarea
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
-                placeholder="Example: Extract all product names and prices from this page"
+                placeholder="Example: Extract all product names and prices from this page&#10;&#10;Or type / to use a saved recipe"
                 className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
                 rows={4}
                 disabled={isCreating}
               />
+
+              {/* Recipe Suggestions */}
+              {showRecipeSuggestions && (
+                <div className="absolute z-10 mt-1 w-full bg-background border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  {filteredRecipes.map((recipe) => (
+                    <button
+                      key={recipe.id}
+                      onClick={() => handleSelectRecipe(recipe)}
+                      className="w-full px-3 py-2 text-left hover:bg-secondary transition-colors flex items-start gap-2 border-b border-border last:border-b-0"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">/{recipe.name}</p>
+                        {recipe.description && (
+                          <p className="text-xs text-muted-foreground truncate">
+                            {recipe.description}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          {recipe.actions?.length || 0} steps
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div>
@@ -301,15 +405,23 @@ export const AgentPanel: React.FC = () => {
               {isCreating ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Creating Agent...
+                  {goal.startsWith('/') ? 'Loading Recipe...' : 'Creating Agent...'}
                 </>
               ) : (
                 <>
                   <Play className="w-4 h-4" />
-                  Create & Start Agent
+                  {goal.startsWith('/') ? 'Run Recipe' : 'Create & Start Agent'}
                 </>
               )}
             </button>
+
+            {recipes.length > 0 && (
+              <div className="border-t border-border pt-4">
+                <p className="text-xs text-muted-foreground mb-2">
+                  💡 Tip: Type / to see your saved recipes ({recipes.length} available)
+                </p>
+              </div>
+            )}
 
             <button
               onClick={() => setShowRecipes(!showRecipes)}
