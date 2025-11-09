@@ -297,39 +297,118 @@ export class AgentExecutor {
     try {
       await ensureHelperScript(tab);
 
-      const selector = action.parameters.selector;
-      console.log(`   🖱️  Attempting to click element with selector: "${selector}"`);
-      
-      const result = await tab.runJs(
-        `window.__agentHelpers.click('${this.escapeString(selector)}')`
-      );
+      // Check if we have multi-selectors
+      const selectors = (action.parameters as any).selectors;
 
-      if (!result.success) {
-        console.error(`   ❌ Click failed: ${result.error || "Unknown error"}`);
+      if (selectors && Array.isArray(selectors) && selectors.length > 0) {
+        // Try each selector strategy until one works
+        console.log(`   🖱️  Attempting click with ${selectors.length} selector strategies`);
+
+        for (let i = 0; i < selectors.length; i++) {
+          const selectorArray = selectors[i];
+          if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
+
+          for (const selector of selectorArray) {
+            try {
+              console.log(`   🔍 Trying selector: "${selector}"`);
+              const result = await this.tryClickWithSelector(selector, action, tab);
+
+              if (result.success) {
+                console.log(`   ✅ Click succeeded with selector: "${selector}"`);
+                await this.wait(this.config.actionDelay);
+                const screenshot = await this.captureScreenshot(tab);
+
+                return {
+                  success: true,
+                  action,
+                  data: result,
+                  screenshot,
+                  duration: Date.now() - startTime,
+                  timestamp: new Date(),
+                };
+              }
+            } catch (e) {
+              console.log(`   ⚠️  Selector failed: "${selector}"`);
+              continue; // Try next selector
+            }
+          }
+        }
+
+        // All selectors failed
         return this.createErrorResult(
           action,
-          result.error || "Click failed",
+          "All selector strategies failed",
           startTime
         );
+      } else {
+        // Fallback to single selector
+        const selector = action.parameters.selector;
+        console.log(`   🖱️  Attempting to click element with selector: "${selector}"`);
+
+        const result = await tab.runJs(
+          `window.__agentHelpers.click('${this.escapeString(selector)}')`
+        );
+
+        if (!result.success) {
+          console.error(`   ❌ Click failed: ${result.error || "Unknown error"}`);
+          return this.createErrorResult(
+            action,
+            result.error || "Click failed",
+            startTime
+          );
+        }
+
+        console.log(`   ✅ Click succeeded on: ${result.element || 'element'}${result.text ? ` (${result.text})` : ''}`);
+
+        await this.wait(this.config.actionDelay);
+
+        const screenshot = await this.captureScreenshot(tab);
+
+        return {
+          success: true,
+          action,
+          data: result,
+          screenshot,
+          duration: Date.now() - startTime,
+          timestamp: new Date(),
+        };
       }
-      
-      console.log(`   ✅ Click succeeded on: ${result.element || 'element'}${result.text ? ` (${result.text})` : ''}`);
-
-      await this.wait(this.config.actionDelay);
-
-      const screenshot = await this.captureScreenshot(tab);
-
-      return {
-        success: true,
-        action,
-        data: result,
-        screenshot,
-        duration: Date.now() - startTime,
-        timestamp: new Date(),
-      };
     } catch (error) {
       return this.createErrorResult(action, String(error), startTime);
     }
+  }
+
+  private async tryClickWithSelector(
+    selector: string,
+    action: ClickAction,
+    tab: Tab
+  ): Promise<any> {
+    // Handle special selector formats
+    let jsSelector = selector;
+
+    // Convert xpath/ format
+    if (selector.startsWith("xpath/")) {
+      const xpath = selector.substring(6);
+      jsSelector = `xpath:${xpath}`;
+    }
+    // Convert aria/ format
+    else if (selector.startsWith("aria/")) {
+      const ariaLabel = selector.substring(5);
+      jsSelector = `[aria-label="${ariaLabel}"]`;
+    }
+    // Convert text/ format
+    else if (selector.startsWith("text/")) {
+      const text = selector.substring(5);
+      jsSelector = `text:${text}`;
+    }
+    // Convert pierce/ format (for shadow DOM)
+    else if (selector.startsWith("pierce/")) {
+      jsSelector = selector.substring(7);
+    }
+
+    return await tab.runJs(
+      `window.__agentHelpers.click('${this.escapeString(jsSelector)}')`
+    );
   }
 
   private async executeType(
@@ -341,35 +420,107 @@ export class AgentExecutor {
     try {
       await ensureHelperScript(tab);
 
+      // Check if we have multi-selectors
+      const selectors = (action.parameters as any).selectors;
       const clear = action.parameters.clear || false;
-      const result = await tab.runJs(
-        `window.__agentHelpers.type('${this.escapeString(action.parameters.selector)}', '${this.escapeString(action.parameters.text)}', ${clear})`
-      );
+      const text = action.parameters.text;
 
-      if (!result.success) {
+      if (selectors && Array.isArray(selectors) && selectors.length > 0) {
+        // Try each selector strategy until one works
+        console.log(`   ⌨️  Attempting type with ${selectors.length} selector strategies`);
+
+        for (let i = 0; i < selectors.length; i++) {
+          const selectorArray = selectors[i];
+          if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
+
+          for (const selector of selectorArray) {
+            try {
+              console.log(`   🔍 Trying selector: "${selector}"`);
+              const result = await this.tryTypeWithSelector(selector, text, clear, tab);
+
+              if (result.success) {
+                console.log(`   ✅ Type succeeded with selector: "${selector}"`);
+                const typingDuration = text.length * 50 + 500;
+                await this.wait(Math.min(typingDuration, 3000));
+                const screenshot = await this.captureScreenshot(tab);
+
+                return {
+                  success: true,
+                  action,
+                  data: result,
+                  screenshot,
+                  duration: Date.now() - startTime,
+                  timestamp: new Date(),
+                };
+              }
+            } catch (e) {
+              console.log(`   ⚠️  Selector failed: "${selector}"`);
+              continue; // Try next selector
+            }
+          }
+        }
+
+        // All selectors failed
         return this.createErrorResult(
           action,
-          result.error || "Type failed",
+          "All selector strategies failed",
           startTime
         );
+      } else {
+        // Fallback to single selector
+        const result = await tab.runJs(
+          `window.__agentHelpers.type('${this.escapeString(action.parameters.selector)}', '${this.escapeString(text)}', ${clear})`
+        );
+
+        if (!result.success) {
+          return this.createErrorResult(
+            action,
+            result.error || "Type failed",
+            startTime
+          );
+        }
+
+        const typingDuration = text.length * 50 + 500;
+        await this.wait(Math.min(typingDuration, 3000));
+
+        const screenshot = await this.captureScreenshot(tab);
+
+        return {
+          success: true,
+          action,
+          data: result,
+          screenshot,
+          duration: Date.now() - startTime,
+          timestamp: new Date(),
+        };
       }
-
-      const typingDuration = action.parameters.text.length * 50 + 500;
-      await this.wait(Math.min(typingDuration, 3000));
-
-      const screenshot = await this.captureScreenshot(tab);
-
-      return {
-        success: true,
-        action,
-        data: result,
-        screenshot,
-        duration: Date.now() - startTime,
-        timestamp: new Date(),
-      };
     } catch (error) {
       return this.createErrorResult(action, String(error), startTime);
     }
+  }
+
+  private async tryTypeWithSelector(
+    selector: string,
+    text: string,
+    clear: boolean,
+    tab: Tab
+  ): Promise<any> {
+    // Handle special selector formats (same as click)
+    let jsSelector = selector;
+
+    if (selector.startsWith("xpath/")) {
+      jsSelector = `xpath:${selector.substring(6)}`;
+    } else if (selector.startsWith("aria/")) {
+      jsSelector = `[aria-label="${selector.substring(5)}"]`;
+    } else if (selector.startsWith("text/")) {
+      jsSelector = `text:${selector.substring(5)}`;
+    } else if (selector.startsWith("pierce/")) {
+      jsSelector = selector.substring(7);
+    }
+
+    return await tab.runJs(
+      `window.__agentHelpers.type('${this.escapeString(jsSelector)}', '${this.escapeString(text)}', ${clear})`
+    );
   }
 
   private async executeSelect(

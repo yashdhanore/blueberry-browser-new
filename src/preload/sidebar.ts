@@ -177,8 +177,63 @@ const sidebarAPI = {
 
   listAgentRecipes: () => electronAPI.ipcRenderer.invoke("agent-list-recipes"),
 
-  deleteAgentRecipe: (recipeName: string) =>
-    electronAPI.ipcRenderer.invoke("agent-delete-recipe", recipeName),
+  deleteAgentRecipe: (recipeId: string) =>
+    electronAPI.ipcRenderer.invoke("agent-delete-recipe", recipeId),
+
+  getAgentRecipe: (recipeId: string) =>
+    electronAPI.ipcRenderer.invoke("agent-get-recipe", recipeId),
+
+  // Chrome Recording APIs
+  chromeRecordingStart: (tabId: string) =>
+    electronAPI.ipcRenderer.invoke("chrome-recording-start", tabId),
+
+  chromeRecordingStop: (sessionId: string) =>
+    electronAPI.ipcRenderer.invoke("chrome-recording-stop", sessionId),
+
+  chromeRecordingPause: (sessionId: string) =>
+    electronAPI.ipcRenderer.invoke("chrome-recording-pause", sessionId),
+
+  chromeRecordingResume: (sessionId: string) =>
+    electronAPI.ipcRenderer.invoke("chrome-recording-resume", sessionId),
+
+  chromeRecordingGet: (sessionId: string) =>
+    electronAPI.ipcRenderer.invoke("chrome-recording-get", sessionId),
+
+  chromeRecordingListSessions: () =>
+    electronAPI.ipcRenderer.invoke("chrome-recording-list-sessions"),
+
+  chromeRecordingSaveAsRecipe: (
+    recording: any,
+    name: string,
+    description?: string
+  ) =>
+    electronAPI.ipcRenderer.invoke(
+      "chrome-recording-save-as-recipe",
+      recording,
+      name,
+      description
+    ),
+
+  chromeRecordingExport: (sessionId: string, filepath: string) =>
+    electronAPI.ipcRenderer.invoke(
+      "chrome-recording-export",
+      sessionId,
+      filepath
+    ),
+
+  chromeRecordingImport: (filepath: string) =>
+    electronAPI.ipcRenderer.invoke("chrome-recording-import", filepath),
+
+  // Tab management APIs
+  getTabs: () => electronAPI.ipcRenderer.invoke("get-tabs"),
+
+  createTab: (url?: string) => electronAPI.ipcRenderer.invoke("create-tab", url),
+
+  closeTab: (tabId: string) =>
+    electronAPI.ipcRenderer.invoke("close-tab", tabId),
+
+  switchTab: (tabId: string) =>
+    electronAPI.ipcRenderer.invoke("switch-tab", tabId),
 };
 
 if (process.contextIsolated) {

@@ -307,3 +307,94 @@ export interface ElementLocator {
   strategy: "css" | "xpath" | "text" | "id" | "class";
   value: string;
 }
+
+// ============================================================================
+// PUPPETEER REPLAY FORMAT TYPES
+// ============================================================================
+
+export interface AssertedEvent {
+  type: 'navigation' | 'interaction';
+  url?: string;
+  title?: string;
+}
+
+export type StepType =
+  | 'setViewport'
+  | 'navigate'
+  | 'click'
+  | 'change'
+  | 'keyDown'
+  | 'keyUp'
+  | 'scroll'
+  | 'hover'
+  | 'waitForElement'
+  | 'waitForExpression';
+
+export interface PuppeteerStep {
+  type: StepType;
+  selectors?: string[][]; // Multiple selector strategies
+  selector?: string; // Single selector fallback
+  offsetX?: number;
+  offsetY?: number;
+  target?: string;
+  url?: string;
+  value?: string;
+  key?: string;
+  assertedEvents?: AssertedEvent[];
+  timeout?: number;
+  width?: number;
+  height?: number;
+  deviceScaleFactor?: number;
+  isMobile?: boolean;
+  hasTouch?: boolean;
+  isLandscape?: boolean;
+  x?: number;
+  y?: number;
+  expression?: string;
+}
+
+export interface PuppeteerRecording {
+  title: string;
+  steps: PuppeteerStep[];
+  timeout?: number;
+}
+
+// ============================================================================
+// CHROME RECORDING SESSION
+// ============================================================================
+
+export interface ChromeRecordingSession {
+  id: string;
+  tabId: string;
+  startTime: number;
+  isRecording: boolean;
+  isPaused: boolean;
+  recording: PuppeteerRecording;
+}
+
+// ============================================================================
+// ENHANCED ACTION TYPES WITH MULTI-SELECTOR SUPPORT
+// ============================================================================
+
+// Update ClickAction to support multi-selectors
+export interface EnhancedClickAction extends BaseAction {
+  type: ActionType.CLICK;
+  parameters: {
+    selector: string;
+    selectors?: string[][]; // Multi-selector strategies
+    offsetX?: number;
+    offsetY?: number;
+    waitFor?: number;
+  };
+}
+
+export interface EnhancedTypeAction extends BaseAction {
+  type: ActionType.TYPE;
+  parameters: {
+    selector: string;
+    selectors?: string[][]; // Multi-selector strategies
+    text: string;
+    clear?: boolean;
+    delay?: number;
+  };
+}

@@ -6,12 +6,17 @@
  */
 
 import { ipcMain, WebContents } from "electron";
+import * as fs from "fs";
 import type { Window } from "./Window";
 import { AgentManager } from "./agent/AgentManager";
+import { ChromeRecorder } from "./agent/ChromeRecorder";
+import { PuppeteerConverter } from "./agent/PuppeteerConverter";
+import type { PuppeteerRecording } from "./agent/types";
 
 export class EventManager {
   private mainWindow: Window;
   private agentManager: AgentManager;
+  private chromeRecorder: ChromeRecorder;
 
   constructor(mainWindow: Window) {
     this.mainWindow = mainWindow;
@@ -26,6 +31,8 @@ export class EventManager {
       llmTemperature: 0.7,
     });
 
+    this.chromeRecorder = new ChromeRecorder();
+
     this.setupEventHandlers();
   }
 
@@ -37,6 +44,7 @@ export class EventManager {
     this.handleDarkModeEvents();
     this.handleDebugEvents();
     this.handleAgentEvents();
+    this.handleRecordingEvents();
   }
 
   private handleTabEvents(): void {
@@ -378,8 +386,8 @@ export class EventManager {
       "agent-save-recipe",
       (_, agentId: string, name: string, description?: string) => {
         try {
-          this.agentManager.saveRecipe(agentId, name, description || "");
-          return { success: true };
+          const recipeId = this.agentManager.saveRecipe(agentId, name, description || "");
+          return { success: true, recipeId };
         } catch (error) {
           console.error("Error saving recipe:", error);
           return {
@@ -390,9 +398,14 @@ export class EventManager {
       }
     );
 
-    ipcMain.handle("agent-load-recipe", async (_, recipeName: string) => {
+    ipcMain.handle("agent-load-recipe", async (_, recipeId: string) => {
       try {
-        const agentId = await this.agentManager.loadRecipe(recipeName);
+        const activeTab = this.mainWindow.activeTab;
+        if (!activeTab) {
+          throw new Error("No active tab");
+        }
+
+        const agentId = await this.agentManager.loadRecipe(recipeId, activeTab.id);
         return { success: true, agentId };
       } catch (error) {
         console.error("Error loading recipe:", error);
@@ -416,12 +429,25 @@ export class EventManager {
       }
     });
 
-    ipcMain.handle("agent-delete-recipe", (_, recipeName: string) => {
+    ipcMain.handle("agent-delete-recipe", (_, recipeId: string) => {
       try {
-        this.agentManager.deleteRecipe(recipeName);
-        return { success: true };
+        const success = this.agentManager.deleteRecipe(recipeId);
+        return { success };
       } catch (error) {
         console.error("Error deleting recipe:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    ipcMain.handle("agent-get-recipe", (_, recipeId: string) => {
+      try {
+        const recipe = this.agentManager.getRecipeById(recipeId);
+        return { success: true, recipe };
+      } catch (error) {
+        console.error("Error getting recipe:", error);
         return {
           success: false,
           error: error instanceof Error ? error.message : String(error),
@@ -432,9 +458,185 @@ export class EventManager {
     console.log("✅ Agent IPC handlers registered");
   }
 
+  private handleRecordingEvents(): void {
+    // Start recording
+    ipcMain.handle("chrome-recording-start", async (_, tabId: string) => {
+      try {
+        const tab = this.mainWindow.getTab(tabId);
+        if (!tab) {
+          throw new Error(`Tab ${tabId} not found`);
+        }
+
+        const sessionId = await this.chromeRecorder.startRecording(tab);
+        return { success: true, sessionId };
+      } catch (error) {
+        console.error("Error starting recording:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Stop recording
+    ipcMain.handle("chrome-recording-stop", async (_, sessionId: string) => {
+      try {
+        const recording = await this.chromeRecorder.stopRecording(sessionId);
+        return { success: true, recording };
+      } catch (error) {
+        console.error("Error stopping recording:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Pause recording
+    ipcMain.handle("chrome-recording-pause", (_, sessionId: string) => {
+      try {
+        this.chromeRecorder.pauseRecording(sessionId);
+        return { success: true };
+      } catch (error) {
+        console.error("Error pausing recording:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Resume recording
+    ipcMain.handle("chrome-recording-resume", (_, sessionId: string) => {
+      try {
+        this.chromeRecorder.resumeRecording(sessionId);
+        return { success: true };
+      } catch (error) {
+        console.error("Error resuming recording:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Get current recording
+    ipcMain.handle("chrome-recording-get", (_, sessionId: string) => {
+      try {
+        const recording = this.chromeRecorder.getRecording(sessionId);
+        return { success: true, recording };
+      } catch (error) {
+        console.error("Error getting recording:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Get active sessions
+    ipcMain.handle("chrome-recording-list-sessions", () => {
+      try {
+        const sessions = this.chromeRecorder.getActiveSessions();
+        return { success: true, sessions };
+      } catch (error) {
+        console.error("Error listing sessions:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Save recording as recipe
+    ipcMain.handle(
+      "chrome-recording-save-as-recipe",
+      (_, recording: PuppeteerRecording, name: string, description?: string) => {
+        try {
+          const actions = PuppeteerConverter.puppeteerToAgentActions(recording);
+
+          // Create a temporary agent to save the recipe
+          const activeTab = this.mainWindow.activeTab;
+          if (!activeTab) {
+            throw new Error("No active tab");
+          }
+
+          const agentId = this.agentManager.createAgent(name, activeTab.id);
+          const state = this.agentManager.getAgentStatus(agentId);
+          if (state) {
+            // Populate action history with converted actions
+            state.actionHistory = actions.map((action) => ({
+              success: true,
+              action,
+              duration: 0,
+              timestamp: new Date(),
+            }));
+          }
+
+          const recipeId = this.agentManager.saveRecipe(
+            agentId,
+            name,
+            description || ""
+          );
+
+          return { success: true, recipeId };
+        } catch (error) {
+          console.error("Error saving recording as recipe:", error);
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    );
+
+    // Export recording to file
+    ipcMain.handle(
+      "chrome-recording-export",
+      (_, sessionId: string, filepath: string) => {
+        try {
+          const recording = this.chromeRecorder.getRecording(sessionId);
+          fs.writeFileSync(filepath, JSON.stringify(recording, null, 2), "utf-8");
+          return { success: true };
+        } catch (error) {
+          console.error("Error exporting recording:", error);
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    );
+
+    // Import recording from file
+    ipcMain.handle("chrome-recording-import", (_, filepath: string) => {
+      try {
+        const content = fs.readFileSync(filepath, "utf-8");
+        const recording = JSON.parse(content) as PuppeteerRecording;
+
+        // Validate recording
+        const validation = PuppeteerConverter.validateRecording(recording);
+        if (!validation.isValid) {
+          throw new Error(`Invalid recording: ${validation.errors.join(", ")}`);
+        }
+
+        return { success: true, recording };
+      } catch (error) {
+        console.error("Error importing recording:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    console.log("✅ Recording IPC handlers registered");
+  }
+
   public cleanup(): void {
     console.log("Cleaning up EventManager");
     this.agentManager.cleanup();
+    this.chromeRecorder.cleanup();
     ipcMain.removeAllListeners();
   }
 }
