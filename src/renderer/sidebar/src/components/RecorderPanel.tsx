@@ -17,6 +17,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import { HabitsPanel } from './HabitsPanel';
+import { HabitCreationModal, HabitFormData } from './HabitCreationModal';
 
 interface TabInfo {
   id: string;
@@ -53,6 +54,7 @@ export const RecorderPanel: React.FC = () => {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [recipeName, setRecipeName] = useState('');
   const [recipeDescription, setRecipeDescription] = useState('');
+  const [showHabitModal, setShowHabitModal] = useState(false);
 
   // Load tabs on mount
   useEffect(() => {
@@ -230,6 +232,69 @@ export const RecorderPanel: React.FC = () => {
     setRecipeDescription('');
   };
 
+  const handleSaveAsHabit = () => {
+    console.log('handleSaveAsHabit called, opening modal');
+    setShowHabitModal(true);
+  };
+
+  const handleHabitSave = async (habitData: HabitFormData) => {
+    if (!recording) {
+      setError('No recording available');
+      return;
+    }
+
+    try {
+      console.log('Creating habit from recording:', habitData);
+
+      // First save the recording as a recipe to get the recipe ID
+      const recipeResponse = await window.sidebarAPI.chromeRecordingSaveAsRecipe(
+        recording,
+        `${habitData.alias}_recipe`,
+        `Recipe for habit: ${habitData.title}`
+      );
+
+      if (!recipeResponse.success || !recipeResponse.recipeId) {
+        throw new Error(recipeResponse.error || 'Failed to save recipe');
+      }
+
+      const recipeId = recipeResponse.recipeId;
+
+      // Create habit action that references this recipe
+      const habitActions = [
+        {
+          type: 'skill' as const,
+          title: habitData.title,
+          recipeId: recipeId,
+        },
+      ];
+
+      // Create the habit
+      const habitResponse = await window.sidebarAPI.habitCreate(
+        habitData.alias,
+        habitData.title,
+        habitData.description,
+        habitActions,
+        habitData.schedule,
+        habitData.policy
+      );
+
+      if (!habitResponse.success) {
+        throw new Error(habitResponse.error || 'Failed to create habit');
+      }
+
+      console.log('Habit created successfully with ID:', habitResponse.habitId);
+
+      // Close modal and switch to habits tab
+      setShowHabitModal(false);
+      handleDiscard();
+      setActiveTab('habits');
+    } catch (err) {
+      console.error('Error creating habit:', err);
+      setError(err instanceof Error ? err.message : 'Failed to create habit');
+      throw err; // Re-throw so modal can handle it
+    }
+  };
+
   const handleDiscard = () => {
     setRecording(null);
     setIsRecording(false);
@@ -349,6 +414,15 @@ export const RecorderPanel: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Habit Creation Modal */}
+      {showHabitModal && recording && (
+        <HabitCreationModal
+          recording={recording}
+          onSave={handleHabitSave}
+          onCancel={() => setShowHabitModal(false)}
+        />
       )}
 
       {/* Header */}
@@ -540,8 +614,16 @@ export const RecorderPanel: React.FC = () => {
 
             <div className="space-y-2">
               <button
+                onClick={handleSaveAsHabit}
+                className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                <Calendar className="w-4 h-4" />
+                Save as Habit
+              </button>
+
+              <button
                 onClick={handleSaveAsRecipe}
-                className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 <Save className="w-4 h-4" />
                 Save as Recipe
