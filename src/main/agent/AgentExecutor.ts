@@ -52,16 +52,9 @@ export class AgentExecutor {
     const startTime = Date.now();
 
     try {
-      // Log action execution details
-      console.log("🔨 Executing Action:");
-      console.log(`   Type: ${action.type}`);
-      console.log(`   Parameters: ${JSON.stringify(action.parameters, null, 2)}`);
-      console.log(`   Reasoning: ${action.reasoning || 'N/A'}`);
-      console.log(`   Retry Count: ${retryCount}/${this.config.maxRetries}`);
-
       const validationError = validateAction(action);
       if (validationError) {
-        console.error(`   ❌ Validation Error: ${validationError}`);
+        console.error(`Validation Error: ${validationError}`);
         return this.createErrorResult(action, validationError, startTime);
       }
 
@@ -137,23 +130,8 @@ export class AgentExecutor {
       }
 
       if (!result.success && retryCount < this.config.maxRetries) {
-        console.log(
-          `   ⚠️  Action failed, retrying (attempt ${retryCount + 1}/${this.config.maxRetries})`
-        );
-        if (result.error) {
-          console.log(`   Error: ${result.error}`);
-        }
         await this.wait(1000);
         return this.executeAction(action, tab, retryCount + 1);
-      }
-
-      if (result.success) {
-        console.log(`   ✅ Action succeeded (${Date.now() - startTime}ms)`);
-      } else {
-        console.log(`   ❌ Action failed (${Date.now() - startTime}ms)`);
-        if (result.error) {
-          console.log(`   Error: ${result.error}`);
-        }
       }
 
       return result;
@@ -163,15 +141,9 @@ export class AgentExecutor {
       console.error("Error executing action:", error);
 
       if (retryCount < this.config.maxRetries) {
-        console.log(
-          `   ⚠️  Exception occurred, retrying (attempt ${retryCount + 1}/${this.config.maxRetries})`
-        );
-        console.log(`   Exception: ${errorMessage}`);
         await this.wait(1000);
         return this.executeAction(action, tab, retryCount + 1);
       }
-
-      console.error(`   ❌ Action failed after ${retryCount + 1} attempts: ${errorMessage}`);
       return this.createErrorResult(action, errorMessage, startTime);
     }
   }
@@ -297,24 +269,23 @@ export class AgentExecutor {
     try {
       await ensureHelperScript(tab);
 
-      // Check if we have multi-selectors
-      const selectors = (action.parameters as any).selectors;
+      const selectors = action.parameters.selectors;
 
       if (selectors && Array.isArray(selectors) && selectors.length > 0) {
-        // Try each selector strategy until one works
-        console.log(`   🖱️  Attempting click with ${selectors.length} selector strategies`);
-
         for (let i = 0; i < selectors.length; i++) {
           const selectorArray = selectors[i];
-          if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
+          if (!Array.isArray(selectorArray) || selectorArray.length === 0)
+            continue;
 
           for (const selector of selectorArray) {
             try {
-              console.log(`   🔍 Trying selector: "${selector}"`);
-              const result = await this.tryClickWithSelector(selector, action, tab);
+              const result = await this.tryClickWithSelector(
+                selector,
+                action,
+                tab
+              );
 
               if (result.success) {
-                console.log(`   ✅ Click succeeded with selector: "${selector}"`);
                 await this.wait(this.config.actionDelay);
                 const screenshot = await this.captureScreenshot(tab);
 
@@ -328,37 +299,29 @@ export class AgentExecutor {
                 };
               }
             } catch (e) {
-              console.log(`   ⚠️  Selector failed: "${selector}"`);
-              continue; // Try next selector
+              continue;
             }
           }
         }
 
-        // All selectors failed
         return this.createErrorResult(
           action,
           "All selector strategies failed",
           startTime
         );
       } else {
-        // Fallback to single selector
         const selector = action.parameters.selector;
-        console.log(`   🖱️  Attempting to click element with selector: "${selector}"`);
-
         const result = await tab.runJs(
           `window.__agentHelpers.click('${this.escapeString(selector)}')`
         );
 
         if (!result.success) {
-          console.error(`   ❌ Click failed: ${result.error || "Unknown error"}`);
           return this.createErrorResult(
             action,
             result.error || "Click failed",
             startTime
           );
         }
-
-        console.log(`   ✅ Click succeeded on: ${result.element || 'element'}${result.text ? ` (${result.text})` : ''}`);
 
         await this.wait(this.config.actionDelay);
 
@@ -380,29 +343,26 @@ export class AgentExecutor {
 
   private async tryClickWithSelector(
     selector: string,
-    action: ClickAction,
+    _action: ClickAction,
     tab: Tab
-  ): Promise<any> {
-    // Handle special selector formats
+  ): Promise<{
+    success: boolean;
+    element?: string;
+    text?: string;
+    error?: string;
+  }> {
     let jsSelector = selector;
 
-    // Convert xpath/ format
     if (selector.startsWith("xpath/")) {
       const xpath = selector.substring(6);
       jsSelector = `xpath:${xpath}`;
-    }
-    // Convert aria/ format
-    else if (selector.startsWith("aria/")) {
+    } else if (selector.startsWith("aria/")) {
       const ariaLabel = selector.substring(5);
       jsSelector = `[aria-label="${ariaLabel}"]`;
-    }
-    // Convert text/ format
-    else if (selector.startsWith("text/")) {
+    } else if (selector.startsWith("text/")) {
       const text = selector.substring(5);
       jsSelector = `text:${text}`;
-    }
-    // Convert pierce/ format (for shadow DOM)
-    else if (selector.startsWith("pierce/")) {
+    } else if (selector.startsWith("pierce/")) {
       jsSelector = selector.substring(7);
     }
 
@@ -420,26 +380,26 @@ export class AgentExecutor {
     try {
       await ensureHelperScript(tab);
 
-      // Check if we have multi-selectors
-      const selectors = (action.parameters as any).selectors;
+      const selectors = action.parameters.selectors;
       const clear = action.parameters.clear || false;
       const text = action.parameters.text;
 
       if (selectors && Array.isArray(selectors) && selectors.length > 0) {
-        // Try each selector strategy until one works
-        console.log(`   ⌨️  Attempting type with ${selectors.length} selector strategies`);
-
         for (let i = 0; i < selectors.length; i++) {
           const selectorArray = selectors[i];
-          if (!Array.isArray(selectorArray) || selectorArray.length === 0) continue;
+          if (!Array.isArray(selectorArray) || selectorArray.length === 0)
+            continue;
 
           for (const selector of selectorArray) {
             try {
-              console.log(`   🔍 Trying selector: "${selector}"`);
-              const result = await this.tryTypeWithSelector(selector, text, clear, tab);
+              const result = await this.tryTypeWithSelector(
+                selector,
+                text,
+                clear,
+                tab
+              );
 
               if (result.success) {
-                console.log(`   ✅ Type succeeded with selector: "${selector}"`);
                 const typingDuration = text.length * 50 + 500;
                 await this.wait(Math.min(typingDuration, 3000));
                 const screenshot = await this.captureScreenshot(tab);
@@ -454,20 +414,17 @@ export class AgentExecutor {
                 };
               }
             } catch (e) {
-              console.log(`   ⚠️  Selector failed: "${selector}"`);
-              continue; // Try next selector
+              continue;
             }
           }
         }
 
-        // All selectors failed
         return this.createErrorResult(
           action,
           "All selector strategies failed",
           startTime
         );
       } else {
-        // Fallback to single selector
         const result = await tab.runJs(
           `window.__agentHelpers.type('${this.escapeString(action.parameters.selector)}', '${this.escapeString(text)}', ${clear})`
         );
@@ -504,8 +461,7 @@ export class AgentExecutor {
     text: string,
     clear: boolean,
     tab: Tab
-  ): Promise<any> {
-    // Handle special selector formats (same as click)
+  ): Promise<{ success: boolean; text?: string; error?: string }> {
     let jsSelector = selector;
 
     if (selector.startsWith("xpath/")) {

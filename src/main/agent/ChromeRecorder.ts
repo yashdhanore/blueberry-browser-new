@@ -10,7 +10,6 @@ import type {
   PuppeteerRecording,
   PuppeteerStep,
   ChromeRecordingSession,
-  AssertedEvent,
 } from "./types";
 import type { Tab } from "../Tab";
 
@@ -136,8 +135,6 @@ export class ChromeRecorder {
     const sessionId = this.generateSessionId();
     const webContents = tab.webContents;
 
-    console.log(`🎥 Starting recording session ${sessionId} on tab ${tab.id}`);
-
     // Create session
     const session: ChromeRecordingSession = {
       id: sessionId,
@@ -157,16 +154,12 @@ export class ChromeRecorder {
       // Attach debugger
       await this.attachDebugger(webContents, sessionId);
 
-      // Enable CDP domains
-      // Note: Input domain is not available in Electron's CDP, but we don't need it
-      // since we capture events via injected script
       try {
         await this.sendDebuggerCommand(webContents, "Page.enable");
         await this.sendDebuggerCommand(webContents, "Runtime.enable");
         await this.sendDebuggerCommand(webContents, "DOM.enable");
       } catch (error) {
         console.warn("Error enabling CDP domains:", error);
-        // Continue anyway - injected script will handle event capture
       }
 
       // Inject selector generator script
@@ -197,8 +190,6 @@ export class ChromeRecorder {
       // Set up CDP event listeners
       this.setupEventListeners(webContents, sessionId);
 
-      console.log(`✅ Recording session ${sessionId} started`);
-
       return sessionId;
     } catch (error) {
       console.error("Error starting recording:", error);
@@ -216,8 +207,6 @@ export class ChromeRecorder {
       throw new Error(`Recording session ${sessionId} not found`);
     }
 
-    console.log(`⏹️ Stopping recording session ${sessionId}`);
-
     session.isRecording = false;
 
     // Detach debugger
@@ -228,10 +217,6 @@ export class ChromeRecorder {
 
     const recording = session.recording;
     this.sessions.delete(sessionId);
-
-    console.log(
-      `✅ Recording session ${sessionId} stopped. Captured ${recording.steps.length} steps`
-    );
 
     return recording;
   }
@@ -246,7 +231,6 @@ export class ChromeRecorder {
     }
 
     session.isPaused = true;
-    console.log(`⏸️ Recording session ${sessionId} paused`);
   }
 
   /**
@@ -259,7 +243,6 @@ export class ChromeRecorder {
     }
 
     session.isPaused = false;
-    console.log(`▶️ Recording session ${sessionId} resumed`);
   }
 
   /**
@@ -316,8 +299,8 @@ export class ChromeRecorder {
   private async sendDebuggerCommand(
     webContents: WebContents,
     method: string,
-    params?: any
-  ): Promise<any> {
+    params?: Record<string, unknown>
+  ): Promise<unknown> {
     try {
       return await webContents.debugger.sendCommand(method, params);
     } catch (error) {
@@ -384,15 +367,12 @@ export class ChromeRecorder {
             ],
           };
           session.recording.steps.push(step);
-          console.log(`📝 Recorded navigation: ${params.frame.url}`);
         }
       } catch (error) {
         console.error("Error processing CDP event:", error);
       }
     });
 
-    // Listen for DOM events via injected script
-    // We'll use mutation observers and event listeners in the page context
     this.setupPageEventListeners(webContents, sessionId);
   }
 
@@ -440,7 +420,6 @@ export class ChromeRecorder {
         })();
       `);
 
-      // Listen for console messages to capture recorded events
       webContents.on("console-message", (_event, _level, message) => {
         if (message.startsWith("CHROME_RECORDER_EVENT:")) {
           const session = this.sessions.get(sessionId);
@@ -461,7 +440,16 @@ export class ChromeRecorder {
 
   private processRecordedEvent(
     session: ChromeRecordingSession,
-    eventData: any
+    eventData: {
+      eventType: string;
+      data: {
+        selectors?: string[][];
+        offsetX?: number;
+        offsetY?: number;
+        tagName?: string;
+        value?: string;
+      };
+    }
   ): void {
     const { eventType, data } = eventData;
 
@@ -475,7 +463,6 @@ export class ChromeRecorder {
           target: "main",
         };
         session.recording.steps.push(step);
-        console.log(`📝 Recorded click on ${data.tagName}`);
       } else if (eventType === "input" || eventType === "change") {
         const step: PuppeteerStep = {
           type: "change",
@@ -483,7 +470,6 @@ export class ChromeRecorder {
           value: data.value,
         };
         session.recording.steps.push(step);
-        console.log(`📝 Recorded input: ${data.value}`);
       }
     } catch (error) {
       console.error("Error processing recorded event:", error);
@@ -491,8 +477,6 @@ export class ChromeRecorder {
   }
 
   private getWebContentsByTabId(tabId: string): WebContents | null {
-    // This would need to be implemented by accessing the Window/Tab manager
-    // For now, we'll return null and handle it gracefully
     return null;
   }
 
@@ -504,8 +488,6 @@ export class ChromeRecorder {
    * Cleanup all sessions and detach debuggers
    */
   async cleanup(): Promise<void> {
-    console.log("🧹 Cleaning up ChromeRecorder...");
-
     for (const [sessionId, session] of this.sessions.entries()) {
       const webContents = this.getWebContentsByTabId(session.tabId);
       if (webContents) {
