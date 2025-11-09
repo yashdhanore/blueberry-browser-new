@@ -672,7 +672,15 @@ export class EventManager {
     ipcMain.handle("recording-stop", (_, sessionId: string) => {
       try {
         const actions = this.recordingManager.stopRecording(sessionId);
-        return { success: true, actions };
+        console.log(`📤 Sending ${actions.length} actions to renderer`);
+
+        // Serialize actions to ensure dates are converted to strings
+        const serializedActions = actions.map(action => ({
+          ...action,
+          timestamp: action.timestamp.toISOString(),
+        }));
+
+        return { success: true, actions: serializedActions };
       } catch (error) {
         console.error("Error stopping recording:", error);
         return {

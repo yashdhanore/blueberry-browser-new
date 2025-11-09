@@ -221,9 +221,17 @@ export const SkillsPanel: React.FC = () => {
 
     try {
       const response = await window.sidebarAPI.stopRecording(recordingSessionId);
+      console.log('Stop recording response:', response);
 
-      if (response.success && response.actions) {
+      if (response.success && response.actions !== undefined) {
         setIsRecording(false);
+
+        if (response.actions.length === 0) {
+          alert('No actions were recorded. Try performing some actions in the browser.');
+          setRecordedActions([]);
+          setRecordingSessionId(null);
+          return;
+        }
 
         // Prompt to save as skill
         const name = prompt('Save recording as skill?\nEnter a name:');
@@ -232,10 +240,16 @@ export const SkillsPanel: React.FC = () => {
           const tagsInput = prompt('Enter tags (comma-separated, optional):') || '';
           const tags = tagsInput.split(',').map(t => t.trim()).filter(t => t);
 
+          // Convert timestamp strings back to Date objects if needed
+          const actions = response.actions.map((action: any) => ({
+            ...action,
+            timestamp: new Date(action.timestamp),
+          }));
+
           const saveResponse = await window.sidebarAPI.createSkill(
             name,
             description,
-            response.actions,
+            actions,
             tags
           );
 
@@ -253,6 +267,7 @@ export const SkillsPanel: React.FC = () => {
           setRecordingSessionId(null);
         }
       } else {
+        console.error('Invalid response:', response);
         setError(response.error || 'Failed to stop recording');
       }
     } catch (err) {
