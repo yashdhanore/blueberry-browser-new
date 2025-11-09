@@ -22,9 +22,7 @@ export class PuppeteerConverter {
   /**
    * Convert Puppeteer Replay recording to AgentAction array
    */
-  static puppeteerToAgentActions(
-    recording: PuppeteerRecording
-  ): AgentAction[] {
+  static puppeteerToAgentActions(recording: PuppeteerRecording): AgentAction[] {
     const actions: AgentAction[] = [];
 
     for (const step of recording.steps) {
@@ -189,7 +187,9 @@ export class PuppeteerConverter {
   /**
    * Convert AgentAction to Puppeteer step
    */
-  private static convertActionToStep(action: AgentAction): PuppeteerStep | null {
+  private static convertActionToStep(
+    action: AgentAction
+  ): PuppeteerStep | null {
     switch (action.type) {
       case ActionType.NAVIGATE: {
         const navAction = action as NavigateAction;
@@ -208,14 +208,14 @@ export class PuppeteerConverter {
       case ActionType.CLICK: {
         const clickAction = action as ClickAction;
         const selectors =
-          (clickAction.parameters as any).selectors ||
+          clickAction.parameters.selectors ||
           this.generateSelectorsArray(clickAction.parameters.selector);
 
         return {
           type: "click",
           selectors,
-          offsetX: (clickAction.parameters as any).offsetX,
-          offsetY: (clickAction.parameters as any).offsetY,
+          offsetX: clickAction.parameters.offsetX,
+          offsetY: clickAction.parameters.offsetY,
           target: "main",
         };
       }
@@ -223,7 +223,7 @@ export class PuppeteerConverter {
       case ActionType.TYPE: {
         const typeAction = action as TypeAction;
         const selectors =
-          (typeAction.parameters as any).selectors ||
+          typeAction.parameters.selectors ||
           this.generateSelectorsArray(typeAction.parameters.selector);
 
         return {
@@ -267,45 +267,35 @@ export class PuppeteerConverter {
       }
 
       case ActionType.WAIT: {
-        // Puppeteer Replay doesn't have a direct wait step
-        // We could use waitForExpression instead
         return null;
       }
 
       default:
-        console.warn(`Cannot convert action type ${action.type} to Puppeteer step`);
+        console.warn(
+          `Cannot convert action type ${action.type} to Puppeteer step`
+        );
         return null;
     }
   }
 
-  /**
-   * Extract primary selector from multi-selector array
-   */
-  private static extractPrimarySelector(
-    selectors?: string[][]
-  ): string | null {
+  private static extractPrimarySelector(selectors?: string[][]): string | null {
     if (!selectors || selectors.length === 0) return null;
 
-    // Try to find the best selector
-    // Priority: ID selector > class selector > xpath > aria > text
     for (const selectorArray of selectors) {
       if (selectorArray.length === 0) continue;
 
       const selector = selectorArray[0];
 
-      // Prefer ID selectors
       if (selector.startsWith("#")) {
         return selector;
       }
     }
 
-    // If no ID selector, try class or tag selectors
     for (const selectorArray of selectors) {
       if (selectorArray.length === 0) continue;
 
       const selector = selectorArray[0];
 
-      // Skip special formats (aria, xpath, text, pierce)
       if (
         !selector.startsWith("aria/") &&
         !selector.startsWith("xpath/") &&
@@ -316,11 +306,9 @@ export class PuppeteerConverter {
       }
     }
 
-    // Fallback to first available selector, converting special formats
     const firstSelector = selectors[0]?.[0];
     if (!firstSelector) return null;
 
-    // Convert special selector formats to CSS selectors where possible
     if (firstSelector.startsWith("text/")) {
       const text = firstSelector.substring(5);
       return `*:contains("${text}")`;

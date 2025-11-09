@@ -50,12 +50,14 @@ export class RecipesManager {
 
     // Save to disk
     const filePath = this.getRecipeFilePath(id);
-    fs.writeFileSync(filePath, JSON.stringify(recipeWithMetadata, null, 2), "utf-8");
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify(recipeWithMetadata, null, 2),
+      "utf-8"
+    );
 
     // Add to memory cache
     this.recipes.set(id, recipeWithMetadata);
-
-    console.log(`💾 Saved recipe: ${recipe.name} (${id})`);
 
     return id;
   }
@@ -70,14 +72,13 @@ export class RecipesManager {
       return recipe;
     }
 
-    // Try loading from disk
     const filePath = this.getRecipeFilePath(recipeId);
     if (fs.existsSync(filePath)) {
       try {
         const content = fs.readFileSync(filePath, "utf-8");
-        recipe = JSON.parse(content);
-        this.recipes.set(recipeId, recipe!);
-        return recipe!;
+        recipe = JSON.parse(content) as RecipeWithMetadata;
+        this.recipes.set(recipeId, recipe);
+        return recipe;
       } catch (error) {
         console.error(`Error loading recipe ${recipeId}:`, error);
         return null;
@@ -146,7 +147,6 @@ export class RecipesManager {
       try {
         fs.unlinkSync(filePath);
         this.recipes.delete(recipeId);
-        console.log(`🗑️  Deleted recipe: ${recipeId}`);
         return true;
       } catch (error) {
         console.error(`Error deleting recipe ${recipeId}:`, error);
@@ -193,7 +193,6 @@ export class RecipesManager {
 
     try {
       fs.writeFileSync(exportPath, JSON.stringify(recipe, null, 2), "utf-8");
-      console.log(`📤 Exported recipe to: ${exportPath}`);
       return true;
     } catch (error) {
       console.error(`Error exporting recipe:`, error);
@@ -218,8 +217,6 @@ export class RecipesManager {
       fs.writeFileSync(filePath, JSON.stringify(recipe, null, 2), "utf-8");
 
       this.recipes.set(newId, recipe);
-
-      console.log(`📥 Imported recipe: ${recipe.name} (${newId})`);
 
       return newId;
     } catch (error) {
@@ -267,14 +264,9 @@ export class RecipesManager {
     };
   }
 
-  // ============================================================================
-  // PRIVATE METHODS
-  // ============================================================================
-
   private ensureRecipesDirectory(): void {
     if (!fs.existsSync(this.recipesDir)) {
       fs.mkdirSync(this.recipesDir, { recursive: true });
-      console.log(`📁 Created recipes directory: ${this.recipesDir}`);
     }
   }
 
@@ -301,8 +293,6 @@ export class RecipesManager {
           console.error(`Error loading recipe file ${file}:`, error);
         }
       }
-
-      console.log(`📚 Loaded ${this.recipes.size} recipes from disk`);
     } catch (error) {
       console.error("Error loading recipes:", error);
     }
@@ -328,7 +318,6 @@ export class RecipesManager {
    * Cleanup
    */
   cleanup(): void {
-    console.log("🧹 Cleaning up RecipesManager...");
     this.recipes.clear();
   }
 }
