@@ -671,6 +671,7 @@ export class EventManager {
     // Stop recording
     ipcMain.handle("recording-stop", (_, sessionId: string) => {
       try {
+        console.log(`🔵 IPC Handler: recording-stop called with sessionId: ${sessionId}`);
         const actions = this.recordingManager.stopRecording(sessionId);
         console.log(`📤 Sending ${actions.length} actions to renderer`);
 
@@ -680,9 +681,22 @@ export class EventManager {
           timestamp: action.timestamp.toISOString(),
         }));
 
-        return { success: true, actions: serializedActions };
+        const response = { success: true, actions: serializedActions };
+        console.log(`📦 Response structure:`, JSON.stringify({
+          success: response.success,
+          actionsCount: response.actions.length,
+          actionsIsArray: Array.isArray(response.actions),
+          firstAction: response.actions[0] ? {
+            type: response.actions[0].type,
+            hasTimestamp: !!response.actions[0].timestamp,
+            hasParameters: !!response.actions[0].parameters,
+          } : 'none'
+        }, null, 2));
+
+        console.log(`✅ Returning response to renderer`);
+        return response;
       } catch (error) {
-        console.error("Error stopping recording:", error);
+        console.error("❌ Error stopping recording:", error);
         return {
           success: false,
           error: error instanceof Error ? error.message : String(error),

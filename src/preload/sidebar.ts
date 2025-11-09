@@ -236,8 +236,16 @@ const sidebarAPI = {
   startRecording: (tabId?: string) =>
     electronAPI.ipcRenderer.invoke("recording-start", tabId),
 
-  stopRecording: (sessionId: string) =>
-    electronAPI.ipcRenderer.invoke("recording-stop", sessionId),
+  stopRecording: async (sessionId: string) => {
+    console.log('🌉 Preload: stopRecording called with sessionId:', sessionId);
+    const response = await electronAPI.ipcRenderer.invoke("recording-stop", sessionId);
+    console.log('🌉 Preload: stopRecording response received:', response);
+    console.log('🌉 Preload: response type:', typeof response);
+    console.log('🌉 Preload: response keys:', response ? Object.keys(response) : 'null');
+    console.log('🌉 Preload: success value:', response?.success, 'type:', typeof response?.success);
+    console.log('🌉 Preload: actions value:', response?.actions, 'isArray:', Array.isArray(response?.actions));
+    return response;
+  },
 
   pauseRecording: (sessionId: string) =>
     electronAPI.ipcRenderer.invoke("recording-pause", sessionId),
