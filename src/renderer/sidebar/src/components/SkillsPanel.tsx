@@ -220,10 +220,18 @@ export const SkillsPanel: React.FC = () => {
     if (!recordingSessionId) return;
 
     try {
+      console.log('🛑 Stopping recording session:', recordingSessionId);
       const response = await window.sidebarAPI.stopRecording(recordingSessionId);
-      console.log('Stop recording response:', response);
+      console.log('📥 Stop recording response:', response);
+      console.log('Response type:', typeof response);
+      console.log('Response keys:', response ? Object.keys(response) : 'null');
+      console.log('Success:', response?.success);
+      console.log('Actions:', response?.actions);
+      console.log('Actions type:', typeof response?.actions);
+      console.log('Actions length:', response?.actions?.length);
 
-      if (response.success && response.actions !== undefined) {
+      if (response && response.success === true && Array.isArray(response.actions)) {
+        console.log('✅ Response validation passed');
         setIsRecording(false);
 
         if (response.actions.length === 0) {
@@ -267,11 +275,12 @@ export const SkillsPanel: React.FC = () => {
           setRecordingSessionId(null);
         }
       } else {
-        console.error('Invalid response:', response);
-        setError(response.error || 'Failed to stop recording');
+        console.error('❌ Response validation failed');
+        console.error('Invalid response structure:', response);
+        setError(response?.error || 'Failed to stop recording - invalid response');
       }
     } catch (err) {
-      console.error('Error stopping recording:', err);
+      console.error('💥 Exception in handleStopRecording:', err);
       setError('Failed to stop recording');
     }
   };
