@@ -37,6 +37,7 @@ export class RecordingManager {
   private window: Window;
   private sessions: Map<string, RecordingSession> = new Map();
   private webContents: WebContents | null = null;
+  private pollingIntervals: Map<string, NodeJS.Timeout> = new Map();
 
   constructor(window: Window) {
     this.window = window;
@@ -87,6 +88,9 @@ export class RecordingManager {
 
     console.log(`🔴 Started recording session: ${sessionId}`);
 
+    // Start polling for events
+    this.startPolling(sessionId, activeTab);
+
     // Notify renderer
     this.notifyRecordingStatus(sessionId, true);
 
@@ -104,6 +108,9 @@ export class RecordingManager {
     }
 
     session.isRecording = false;
+
+    // Stop polling
+    this.stopPolling(sessionId);
 
     console.log(`⏹️  Stopped recording session: ${sessionId}`);
     console.log(`📊 Captured ${session.actions.length} actions`);
@@ -125,6 +132,7 @@ export class RecordingManager {
     }
 
     session.isRecording = false;
+    this.stopPolling(sessionId);
     console.log(`⏸️  Paused recording session: ${sessionId}`);
 
     this.notifyRecordingStatus(sessionId, false);
@@ -140,7 +148,13 @@ export class RecordingManager {
       throw new Error(`Recording session not found: ${sessionId}`);
     }
 
+    const tab = this.window.getTab(session.tabId);
+    if (!tab) {
+      throw new Error(`Tab not found: ${session.tabId}`);
+    }
+
     session.isRecording = true;
+    this.startPolling(sessionId, tab);
     console.log(`▶️  Resumed recording session: ${sessionId}`);
 
     this.notifyRecordingStatus(sessionId, true);
@@ -150,6 +164,7 @@ export class RecordingManager {
    * Delete a recording session
    */
   deleteSession(sessionId: string): void {
+    this.stopPolling(sessionId);
     this.sessions.delete(sessionId);
     console.log(`🗑️  Deleted recording session: ${sessionId}`);
   }
@@ -272,6 +287,7 @@ export class RecordingManager {
       (function() {
         if (window.__recordingEnabled) return;
         window.__recordingEnabled = true;
+        window.__recordedEvents = [];
 
         console.log('🎬 Recording script injected');
 
@@ -287,7 +303,7 @@ export class RecordingManager {
           }
 
           // Try to find unique attributes
-          if (element.name) return \`[\${element.tagName.toLowerCase()}[name="\${element.name}"]\`;
+          if (element.name) return \`\${element.tagName.toLowerCase()}[name="\${element.name}"]\`;
           if (element.type) return \`\${element.tagName.toLowerCase()}[type="\${element.type}"]\`;
 
           // Use nth-child as fallback
@@ -300,13 +316,18 @@ export class RecordingManager {
           return element.tagName.toLowerCase();
         }
 
+        // Helper to store events
+        function recordEvent(event) {
+          window.__recordedEvents.push(event);
+        }
+
         // Track click events
         document.addEventListener('click', (e) => {
           const target = e.target;
           const selector = getSelector(target);
           const text = target.textContent?.trim().substring(0, 50) || '';
 
-          window.electron.ipcRenderer.send('recording-event', {
+          recordEvent({
             type: 'click',
             timestamp: Date.now(),
             data: {
@@ -332,7 +353,7 @@ export class RecordingManager {
             inputTimeout = setTimeout(() => {
               const selector = getSelector(target);
 
-              window.electron.ipcRenderer.send('recording-event', {
+              recordEvent({
                 type: 'input',
                 timestamp: Date.now(),
                 data: {
@@ -355,7 +376,7 @@ export class RecordingManager {
           if (target.tagName === 'SELECT') {
             const selector = getSelector(target);
 
-            window.electron.ipcRenderer.send('recording-event', {
+            recordEvent({
               type: 'select',
               timestamp: Date.now(),
               data: {
@@ -382,7 +403,7 @@ export class RecordingManager {
             const amount = Math.abs(currentScrollY - lastScrollY);
 
             if (amount > 50) { // Only record significant scrolls
-              window.electron.ipcRenderer.send('recording-event', {
+              recordEvent({
                 type: 'scroll',
                 timestamp: Date.now(),
                 data: {
@@ -403,7 +424,7 @@ export class RecordingManager {
         let currentUrl = window.location.href;
         setInterval(() => {
           if (window.location.href !== currentUrl) {
-            window.electron.ipcRenderer.send('recording-event', {
+            recordEvent({
               type: 'navigation',
               timestamp: Date.now(),
               data: {
@@ -495,6 +516,84 @@ export class RecordingManager {
    */
   cleanup(): void {
     console.log("🧹 Cleaning up RecordingManager...");
+
+    // Clear all polling intervals
+    for (const interval of this.pollingIntervals.values()) {
+      clearInterval(interval);
+    }
+    this.pollingIntervals.clear();
+
     this.sessions.clear();
+  }
+
+  // ============================================================================
+  // EVENT POLLING
+  // ============================================================================
+
+  /**
+   * Start polling for recorded events from the tab
+   */
+  private startPolling(sessionId: string, tab: Tab): void {
+    // Poll every 500ms for new events
+    const interval = setInterval(async () => {
+      try {
+        await this.pollEvents(sessionId, tab);
+      } catch (error) {
+        console.error(`Error polling events for session ${sessionId}:`, error);
+      }
+    }, 500);
+
+    this.pollingIntervals.set(sessionId, interval);
+    console.log(`📡 Started polling for session: ${sessionId}`);
+  }
+
+  /**
+   * Stop polling for events
+   */
+  private stopPolling(sessionId: string): void {
+    const interval = this.pollingIntervals.get(sessionId);
+    if (interval) {
+      clearInterval(interval);
+      this.pollingIntervals.delete(sessionId);
+      console.log(`🛑 Stopped polling for session: ${sessionId}`);
+    }
+  }
+
+  /**
+   * Poll and retrieve events from the tab
+   */
+  private async pollEvents(sessionId: string, tab: Tab): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.isRecording) {
+      return;
+    }
+
+    try {
+      // Retrieve and clear events from the page
+      const eventsJson = await tab.runJs(`
+        (function() {
+          if (!window.__recordedEvents || window.__recordedEvents.length === 0) {
+            return JSON.stringify([]);
+          }
+
+          const events = [...window.__recordedEvents];
+          window.__recordedEvents = [];
+          return JSON.stringify(events);
+        })();
+      `);
+
+      if (!eventsJson) {
+        return;
+      }
+
+      const events: RecordedEvent[] = JSON.parse(eventsJson);
+
+      // Process each event
+      for (const event of events) {
+        this.handleRecordedEvent(sessionId, event);
+      }
+    } catch (error) {
+      console.error(`Error retrieving events from tab:`, error);
+    }
   }
 }
