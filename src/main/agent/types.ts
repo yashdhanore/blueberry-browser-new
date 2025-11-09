@@ -355,6 +355,7 @@ export interface PuppeteerStep {
   x?: number;
   y?: number;
   expression?: string;
+  isNewTab?: boolean; // Custom marker for tab creation during recording
 }
 
 export interface PuppeteerRecording {

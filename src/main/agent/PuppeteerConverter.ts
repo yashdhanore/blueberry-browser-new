@@ -15,6 +15,7 @@ import type {
   ScrollAction,
   HoverAction,
   WaitForElementAction,
+  CreateTabAction,
 } from "./types";
 import { ActionType } from "./types";
 
@@ -77,6 +78,16 @@ export class PuppeteerConverter {
     switch (step.type) {
       case "navigate":
         if (!step.url) return null;
+
+        // Check if this is a new tab creation
+        if (step.isNewTab) {
+          return {
+            type: ActionType.CREATE_TAB,
+            parameters: { url: step.url },
+            timestamp,
+          };
+        }
+
         return {
           type: ActionType.NAVIGATE,
           parameters: { url: step.url },
@@ -200,6 +211,21 @@ export class PuppeteerConverter {
             {
               type: "navigation",
               url: navAction.parameters.url,
+            },
+          ],
+        };
+      }
+
+      case ActionType.CREATE_TAB: {
+        const createTabAction = action as CreateTabAction;
+        return {
+          type: "navigate",
+          url: createTabAction.parameters.url || "about:blank",
+          isNewTab: true,
+          assertedEvents: [
+            {
+              type: "navigation",
+              url: createTabAction.parameters.url || "about:blank",
             },
           ],
         };

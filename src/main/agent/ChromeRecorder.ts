@@ -451,10 +451,11 @@ export class ChromeRecorder {
             await this.attachToNewTab(sessionId, tab);
             recordedTabIds.add(tab.id);
 
-            // Add CREATE_TAB step
+            // Add CREATE_TAB step - mark it with isNewTab so converter knows to create a tab
             session.recording.steps.push({
               type: "navigate",
               url: tab.url || "about:blank",
+              isNewTab: true, // Custom marker for new tab creation
               assertedEvents: [
                 {
                   type: "navigation",
