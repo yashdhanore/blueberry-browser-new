@@ -28,6 +28,9 @@ import { extractInteractiveElements } from "./DOMHelpers";
 import { WebContents } from "electron";
 import { RecipesManager } from "./RecipesManager";
 import type { RecipeWithMetadata } from "./RecipesManager";
+import { HabitsManager } from "./HabitsManager";
+import { HabitsScheduler } from "./HabitsScheduler";
+import type { Habit, HabitExecutionTrace, HabitAction as HabitActionType } from "./types";
 
 // ============================================================================
 // AGENT MANAGER CLASS
@@ -41,6 +44,8 @@ export class AgentManager {
   private config: AgentConfig;
   private webContents: WebContents | null = null;
   private recipesManager: RecipesManager;
+  private habitsManager: HabitsManager;
+  private habitsScheduler: HabitsScheduler;
 
   constructor(window: Window, config: Partial<AgentConfig> = {}) {
     this.window = window;
@@ -48,10 +53,33 @@ export class AgentManager {
     this.planner = new AgentPlanner();
     this.executor = new AgentExecutor(window, this.config);
     this.recipesManager = new RecipesManager();
+    this.habitsManager = new HabitsManager();
+    this.habitsScheduler = new HabitsScheduler(this.habitsManager);
+
+    // Set up scheduler event handlers
+    this.setupSchedulerHandlers();
   }
 
   setWebContents(webContents: WebContents): void {
     this.webContents = webContents;
+    // Start scheduler when webContents is set (ready to send notifications)
+    this.habitsScheduler.start();
+  }
+
+  private setupSchedulerHandlers(): void {
+    this.habitsScheduler.on("suggestion", (habit: Habit) => {
+      if (this.webContents) {
+        this.webContents.send("habit-suggestion", { habit });
+      }
+    });
+
+    this.habitsScheduler.on("autorun", async (habit: Habit) => {
+      try {
+        await this.executeHabit(habit.id);
+      } catch (error) {
+        console.error(`Error auto-running habit ${habit.alias}:`, error);
+      }
+    });
   }
 
   // ============================================================================
@@ -491,6 +519,215 @@ export class AgentManager {
   }
 
   // ============================================================================
+  // HABITS MANAGEMENT
+  // ============================================================================
+
+  saveHabitFromActions(
+    alias: string,
+    title: string,
+    description: string,
+    actions: HabitActionType[],
+    schedule?: Habit["schedule"],
+    policy?: Habit["policy"]
+  ): string {
+    const habit: Omit<Habit, "id" | "createdAt" | "updatedAt"> = {
+      alias,
+      title,
+      description,
+      actions,
+      schedule,
+      policy: policy || {
+        requireApproval: true,
+        dryRun: false,
+        openTabsMax: 10,
+      },
+    };
+
+    return this.habitsManager.saveHabit(habit);
+  }
+
+  updateHabit(
+    habitId: string,
+    updates: Partial<Omit<Habit, "id" | "createdAt">>
+  ): boolean {
+    return this.habitsManager.updateHabit(habitId, updates);
+  }
+
+  getHabit(habitId: string): Habit | null {
+    return this.habitsManager.getHabit(habitId);
+  }
+
+  getHabitByAlias(alias: string): Habit | null {
+    return this.habitsManager.getHabitByAlias(alias);
+  }
+
+  listHabits(): Habit[] {
+    return this.habitsManager.listHabits();
+  }
+
+  deleteHabit(habitId: string): boolean {
+    return this.habitsManager.deleteHabit(habitId);
+  }
+
+  getHabitTraces(habitId: string): HabitExecutionTrace[] {
+    return this.habitsManager.getTraces(habitId);
+  }
+
+  getNextRunTime(habitId: string): Date | null {
+    const habit = this.habitsManager.getHabit(habitId);
+    if (!habit) return null;
+    return this.habitsScheduler.getNextRunTime(habit);
+  }
+
+  /**
+   * Execute a habit
+   */
+  async executeHabit(habitId: string, dryRun: boolean = false): Promise<string> {
+    const habit = this.habitsManager.getHabit(habitId);
+    if (!habit) {
+      throw new Error(`Habit ${habitId} not found`);
+    }
+
+    const activeTab = this.window.activeTab;
+    if (!activeTab) {
+      throw new Error("No active tab");
+    }
+
+    // Create trace
+    const trace: HabitExecutionTrace = {
+      habitId: habit.id,
+      startTime: new Date(),
+      outcome: "success",
+      actions: [],
+    };
+
+    try {
+      // Policy check: tab limit
+      const estimatedTabs = this.estimateTabsToOpen(habit);
+      if (estimatedTabs > habit.policy.openTabsMax) {
+        throw new Error(
+          `Habit would open ${estimatedTabs} tabs, exceeding limit of ${habit.policy.openTabsMax}`
+        );
+      }
+
+      // Create agent for execution
+      const agentId = this.createAgent(habit.title, activeTab.id);
+      const state = this.agents.get(agentId);
+      if (!state) {
+        throw new Error("Failed to create agent for habit");
+      }
+
+      // Execute each action sequentially
+      for (const habitAction of habit.actions) {
+        const actionResults: ExecutionResult[] = [];
+
+        if (habitAction.type === "skill") {
+          // Execute skill (recipe)
+          if (!habitAction.recipeId) {
+            throw new Error("Skill action missing recipeId");
+          }
+
+          const recipe = this.recipesManager.loadRecipe(habitAction.recipeId);
+          if (!recipe) {
+            throw new Error(`Recipe ${habitAction.recipeId} not found`);
+          }
+
+          // Execute recipe actions
+          for (const action of recipe.actions) {
+            if (dryRun || habit.policy.dryRun) {
+              console.log(`[DRY RUN] Would execute: ${action.type}`);
+              continue;
+            }
+
+            const result = await this.executor.executeAction(action, activeTab);
+            actionResults.push(result);
+            state.actionHistory.push(result);
+
+            if (!result.success) {
+              throw new Error(
+                `Action ${action.type} failed: ${result.error}`
+              );
+            }
+
+            await this.wait(this.config.actionDelay);
+          }
+        } else if (habitAction.type === "plan") {
+          // Execute plan actions
+          if (!habitAction.actions) {
+            throw new Error("Plan action missing actions");
+          }
+
+          for (const action of habitAction.actions) {
+            if (dryRun || habit.policy.dryRun) {
+              console.log(`[DRY RUN] Would execute: ${action.type}`);
+              continue;
+            }
+
+            const result = await this.executor.executeAction(action, activeTab);
+            actionResults.push(result);
+            state.actionHistory.push(result);
+
+            if (!result.success) {
+              throw new Error(
+                `Action ${action.type} failed: ${result.error}`
+              );
+            }
+
+            await this.wait(this.config.actionDelay);
+          }
+        }
+
+        trace.actions.push({
+          actionTitle: habitAction.title,
+          result: actionResults,
+        });
+      }
+
+      trace.endTime = new Date();
+      trace.outcome = "success";
+
+      this.habitsManager.saveTrace(trace);
+      this.habitsManager.updateLastRun(habitId, "success");
+
+      this.completeAgent(agentId);
+
+      return agentId;
+    } catch (error) {
+      trace.endTime = new Date();
+      trace.outcome = "failed";
+
+      this.habitsManager.saveTrace(trace);
+      this.habitsManager.updateLastRun(habitId, "failed");
+
+      throw error;
+    }
+  }
+
+  /**
+   * Estimate how many tabs a habit will open
+   */
+  private estimateTabsToOpen(habit: Habit): number {
+    let count = 0;
+
+    for (const habitAction of habit.actions) {
+      if (habitAction.type === "skill" && habitAction.recipeId) {
+        const recipe = this.recipesManager.loadRecipe(habitAction.recipeId);
+        if (recipe) {
+          count += recipe.actions.filter(
+            (a) => a.type === "navigate" || a.type === "create_tab"
+          ).length;
+        }
+      } else if (habitAction.type === "plan" && habitAction.actions) {
+        count += habitAction.actions.filter(
+          (a) => a.type === "navigate" || a.type === "create_tab"
+        ).length;
+      }
+    }
+
+    return count;
+  }
+
+  // ============================================================================
   // IPC NOTIFICATIONS
   // ============================================================================
 
@@ -571,6 +808,8 @@ export class AgentManager {
     }
 
     this.recipesManager.cleanup();
+    this.habitsManager.cleanup();
+    this.habitsScheduler.cleanup();
   }
 }
 

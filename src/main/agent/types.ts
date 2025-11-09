@@ -371,3 +371,65 @@ export interface ChromeRecordingSession {
   isPaused: boolean;
   recording: PuppeteerRecording;
 }
+
+// ============================================================================
+// HABITS TYPES
+// ============================================================================
+
+export interface HabitAction {
+  type: "skill" | "plan";
+  title: string; // Human-readable title for UI
+  // For skill type
+  recipeId?: string;
+  parameters?: Record<string, any>;
+  // For plan type
+  actions?: AgentAction[];
+}
+
+export interface HabitSchedule {
+  timezone: string; // e.g., "Europe/Stockholm"
+  daysOfWeek: number[]; // 0=Sunday, 1=Monday, etc.
+  hour: number; // 0-23
+  minute: number; // 0-59
+  windowMinutes: number; // Default 30
+  mode: "suggest" | "autorun";
+}
+
+export interface HabitPolicy {
+  requireApproval: boolean; // Default true
+  dryRun: boolean; // Default false
+  openTabsMax: number; // Default 10
+}
+
+export interface Habit {
+  id: string;
+  alias: string; // Must start with @
+  title: string;
+  description?: string;
+  actions: HabitAction[];
+  schedule?: HabitSchedule;
+  policy: HabitPolicy;
+  createdAt: Date;
+  updatedAt: Date;
+  lastRunAt?: Date;
+  lastRunResult?: "success" | "failed" | "skipped";
+  lastSuggestionDate?: string; // YYYY-MM-DD format
+}
+
+export interface HabitExecutionTrace {
+  habitId: string;
+  startTime: Date;
+  endTime?: Date;
+  outcome: "success" | "failed" | "stopped";
+  actions: {
+    actionTitle: string;
+    result: ExecutionResult[];
+  }[];
+  screenshots?: string[];
+}
+
+export const DEFAULT_HABIT_POLICY: HabitPolicy = {
+  requireApproval: true,
+  dryRun: false,
+  openTabsMax: 10,
+};

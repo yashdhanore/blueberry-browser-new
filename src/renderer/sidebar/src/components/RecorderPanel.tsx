@@ -14,7 +14,9 @@ import {
   AlertCircle,
   Clock,
   Hash,
+  Calendar,
 } from 'lucide-react';
+import { HabitsPanel } from './HabitsPanel';
 
 interface TabInfo {
   id: string;
@@ -39,6 +41,7 @@ interface RecordingSession {
 }
 
 export const RecorderPanel: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<'recorder' | 'habits'>('recorder');
   const [tabs, setTabs] = useState<TabInfo[]>([]);
   const [selectedTabId, setSelectedTabId] = useState<string | null>(null);
   const [currentSession, setCurrentSession] = useState<RecordingSession | null>(null);
@@ -258,8 +261,39 @@ export const RecorderPanel: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full bg-background text-foreground">
-      {/* Save Recipe Dialog */}
-      {showSaveDialog && (
+      {/* Tab Switcher */}
+      <div className="flex border-b border-border">
+        <button
+          onClick={() => setActiveTab('recorder')}
+          className={`flex-1 px-4 py-3 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+            activeTab === 'recorder'
+              ? 'bg-secondary border-b-2 border-blue-600 text-foreground'
+              : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+          }`}
+        >
+          <Video className="w-4 h-4" />
+          Recorder
+        </button>
+        <button
+          onClick={() => setActiveTab('habits')}
+          className={`flex-1 px-4 py-3 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+            activeTab === 'habits'
+              ? 'bg-secondary border-b-2 border-blue-600 text-foreground'
+              : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+          }`}
+        >
+          <Calendar className="w-4 h-4" />
+          Habits
+        </button>
+      </div>
+
+      {/* Conditionally render based on active tab */}
+      {activeTab === 'habits' ? (
+        <HabitsPanel />
+      ) : (
+        <>
+          {/* Save Recipe Dialog */}
+          {showSaveDialog && (
         <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-background border border-border rounded-lg p-4 m-4 max-w-md w-full">
             <h3 className="text-lg font-semibold mb-4">Save Recording as Recipe</h3>
@@ -524,6 +558,8 @@ export const RecorderPanel: React.FC = () => {
           </div>
         ) : null}
       </div>
+        </>
+      )}
     </div>
   );
 };

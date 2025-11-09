@@ -9,6 +9,7 @@ import { ChatProvider } from './contexts/ChatContext';
 import { Chat } from './components/Chat';
 import { AgentPanel } from './components/Agentpanel';
 import { RecorderPanel } from './components/RecorderPanel';
+import { HabitToastContainer } from './components/HabitToast';
 import { useDarkMode } from '@common/hooks/useDarkMode';
 import { MessageSquare, Brain, Video } from 'lucide-react';
 
@@ -27,7 +28,10 @@ const SidebarContent: React.FC = () => {
   }, [isDarkMode]);
 
   return (
-    <div className="h-screen flex flex-col bg-background border-l border-border">
+    <div className="h-screen flex flex-col bg-background border-l border-border relative">
+      {/* Habit Toast Notifications */}
+      <HabitToastContainer />
+
       {/* Tab Switcher */}
       <div className="flex border-b border-border bg-background">
         <button

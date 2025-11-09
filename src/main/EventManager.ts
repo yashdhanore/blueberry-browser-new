@@ -45,6 +45,7 @@ export class EventManager {
     this.handleDebugEvents();
     this.handleAgentEvents();
     this.handleRecordingEvents();
+    this.handleHabitEvents();
   }
 
   private handleTabEvents(): void {
@@ -631,6 +632,160 @@ export class EventManager {
     });
 
     console.log("✅ Recording IPC handlers registered");
+  }
+
+  private handleHabitEvents(): void {
+    // Create habit
+    ipcMain.handle(
+      "habit-create",
+      async (
+        _,
+        alias: string,
+        title: string,
+        description: string,
+        actions: any[],
+        schedule?: any,
+        policy?: any
+      ) => {
+        try {
+          const habitId = this.agentManager.saveHabitFromActions(
+            alias,
+            title,
+            description,
+            actions,
+            schedule,
+            policy
+          );
+          return { success: true, habitId };
+        } catch (error) {
+          console.error("Error creating habit:", error);
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    );
+
+    // Update habit
+    ipcMain.handle(
+      "habit-update",
+      async (_, habitId: string, updates: any) => {
+        try {
+          const success = this.agentManager.updateHabit(habitId, updates);
+          return { success };
+        } catch (error) {
+          console.error("Error updating habit:", error);
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    );
+
+    // Get habit by ID
+    ipcMain.handle("habit-get", (_, habitId: string) => {
+      try {
+        const habit = this.agentManager.getHabit(habitId);
+        return { success: true, habit };
+      } catch (error) {
+        console.error("Error getting habit:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Get habit by alias
+    ipcMain.handle("habit-get-by-alias", (_, alias: string) => {
+      try {
+        const habit = this.agentManager.getHabitByAlias(alias);
+        return { success: true, habit };
+      } catch (error) {
+        console.error("Error getting habit by alias:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // List all habits
+    ipcMain.handle("habit-list", () => {
+      try {
+        const habits = this.agentManager.listHabits();
+        return { success: true, habits };
+      } catch (error) {
+        console.error("Error listing habits:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Delete habit
+    ipcMain.handle("habit-delete", (_, habitId: string) => {
+      try {
+        const success = this.agentManager.deleteHabit(habitId);
+        return { success };
+      } catch (error) {
+        console.error("Error deleting habit:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Execute habit
+    ipcMain.handle(
+      "habit-execute",
+      async (_, habitId: string, dryRun: boolean = false) => {
+        try {
+          const agentId = await this.agentManager.executeHabit(habitId, dryRun);
+          return { success: true, agentId };
+        } catch (error) {
+          console.error("Error executing habit:", error);
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    );
+
+    // Get habit traces
+    ipcMain.handle("habit-get-traces", (_, habitId: string) => {
+      try {
+        const traces = this.agentManager.getHabitTraces(habitId);
+        return { success: true, traces };
+      } catch (error) {
+        console.error("Error getting habit traces:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    // Get next run time
+    ipcMain.handle("habit-get-next-run", (_, habitId: string) => {
+      try {
+        const nextRunTime = this.agentManager.getNextRunTime(habitId);
+        return { success: true, nextRunTime };
+      } catch (error) {
+        console.error("Error getting next run time:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+
+    console.log("✅ Habit IPC handlers registered");
   }
 
   public cleanup(): void {

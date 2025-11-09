@@ -82,7 +82,7 @@ export const AgentPanel: React.FC = () => {
     };
   }, [currentAgent]);
 
-  // Watch for recipe command in goal input
+  // Watch for recipe command (/) and habit command (@) in goal input
   useEffect(() => {
     if (goal.startsWith('/')) {
       const searchTerm = goal.substring(1).toLowerCase();
@@ -91,6 +91,10 @@ export const AgentPanel: React.FC = () => {
       );
       setFilteredRecipes(filtered);
       setShowRecipeSuggestions(filtered.length > 0);
+    } else if (goal.startsWith('@')) {
+      // Habit alias suggestions would go here
+      // For now, just hide recipe suggestions
+      setShowRecipeSuggestions(false);
     } else {
       setShowRecipeSuggestions(false);
     }
@@ -121,6 +125,13 @@ export const AgentPanel: React.FC = () => {
       if (goal.startsWith('/')) {
         const recipeName = goal.substring(1).trim();
         await handleLoadRecipe(recipeName);
+        return;
+      }
+
+      // Check if it's a habit command
+      if (goal.startsWith('@')) {
+        const habitAlias = goal.trim();
+        await handleRunHabit(habitAlias);
         return;
       }
 
@@ -181,6 +192,42 @@ export const AgentPanel: React.FC = () => {
 
       setGoal('');
       setShowRecipeSuggestions(false);
+    } catch (err) {
+      throw err; // Re-throw to be caught by handleCreateAgent
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleRunHabit = async (habitAlias: string) => {
+    try {
+      console.log('Running habit:', habitAlias);
+
+      // Get habit by alias
+      const habitResponse = await window.sidebarAPI.habitGetByAlias(habitAlias);
+
+      if (!habitResponse.success || !habitResponse.habit) {
+        throw new Error(`Habit "${habitAlias}" not found`);
+      }
+
+      const habit = habitResponse.habit;
+
+      // Execute habit
+      const executeResponse = await window.sidebarAPI.habitExecute(habit.id, false);
+
+      if (!executeResponse.success) {
+        throw new Error(executeResponse.error || 'Failed to execute habit');
+      }
+
+      // Get the agent status if available
+      if (executeResponse.agentId) {
+        const statusResponse = await window.sidebarAPI.getAgentStatus(executeResponse.agentId);
+        if (statusResponse.success && statusResponse.state) {
+          setCurrentAgent(statusResponse.state);
+        }
+      }
+
+      setGoal('');
     } catch (err) {
       throw err; // Re-throw to be caught by handleCreateAgent
     } finally {
@@ -331,7 +378,7 @@ export const AgentPanel: React.FC = () => {
               <textarea
                 value={goal}
                 onChange={(e) => setGoal(e.target.value)}
-                placeholder="Example: Extract all product names and prices from this page&#10;&#10;Or type / to use a saved recipe"
+                placeholder="Example: Extract all product names and prices from this page&#10;&#10;Type / for recipes or @ for habits"
                 className="w-full px-3 py-2 border border-border rounded-lg bg-background text-foreground resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
                 rows={4}
                 disabled={isCreating}
@@ -405,12 +452,12 @@ export const AgentPanel: React.FC = () => {
               {isCreating ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  {goal.startsWith('/') ? 'Loading Recipe...' : 'Creating Agent...'}
+                  {goal.startsWith('/') ? 'Loading Recipe...' : goal.startsWith('@') ? 'Running Habit...' : 'Creating Agent...'}
                 </>
               ) : (
                 <>
                   <Play className="w-4 h-4" />
-                  {goal.startsWith('/') ? 'Run Recipe' : 'Create & Start Agent'}
+                  {goal.startsWith('/') ? 'Run Recipe' : goal.startsWith('@') ? 'Run Habit' : 'Create & Start Agent'}
                 </>
               )}
             </button>

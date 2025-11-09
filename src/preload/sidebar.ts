@@ -234,6 +234,56 @@ const sidebarAPI = {
 
   switchTab: (tabId: string) =>
     electronAPI.ipcRenderer.invoke("switch-tab", tabId),
+
+  // Habits APIs
+  habitCreate: (
+    alias: string,
+    title: string,
+    description: string,
+    actions: any[],
+    schedule?: any,
+    policy?: any
+  ) =>
+    electronAPI.ipcRenderer.invoke(
+      "habit-create",
+      alias,
+      title,
+      description,
+      actions,
+      schedule,
+      policy
+    ),
+
+  habitUpdate: (habitId: string, updates: any) =>
+    electronAPI.ipcRenderer.invoke("habit-update", habitId, updates),
+
+  habitGet: (habitId: string) =>
+    electronAPI.ipcRenderer.invoke("habit-get", habitId),
+
+  habitGetByAlias: (alias: string) =>
+    electronAPI.ipcRenderer.invoke("habit-get-by-alias", alias),
+
+  habitList: () => electronAPI.ipcRenderer.invoke("habit-list"),
+
+  habitDelete: (habitId: string) =>
+    electronAPI.ipcRenderer.invoke("habit-delete", habitId),
+
+  habitExecute: (habitId: string, dryRun?: boolean) =>
+    electronAPI.ipcRenderer.invoke("habit-execute", habitId, dryRun),
+
+  habitGetTraces: (habitId: string) =>
+    electronAPI.ipcRenderer.invoke("habit-get-traces", habitId),
+
+  habitGetNextRun: (habitId: string) =>
+    electronAPI.ipcRenderer.invoke("habit-get-next-run", habitId),
+
+  onHabitSuggestion: (callback: (data: { habit: any }) => void) => {
+    electronAPI.ipcRenderer.on("habit-suggestion", (_, data) => callback(data));
+  },
+
+  removeHabitSuggestionListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("habit-suggestion");
+  },
 };
 
 if (process.contextIsolated) {
