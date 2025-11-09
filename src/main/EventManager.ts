@@ -31,7 +31,8 @@ export class EventManager {
       llmTemperature: 0.7,
     });
 
-    this.chromeRecorder = new ChromeRecorder();
+    // Pass window to ChromeRecorder for multi-tab recording
+    this.chromeRecorder = new ChromeRecorder(mainWindow);
 
     this.setupEventHandlers();
   }

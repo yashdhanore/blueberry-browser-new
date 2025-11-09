@@ -3,6 +3,7 @@
  *
  * Records user interactions using Chrome DevTools Protocol (CDP).
  * Captures clicks, typing, navigation, and generates Puppeteer Replay format output.
+ * Supports multi-tab recording - automatically tracks new tabs opened during recording.
  */
 
 import { WebContents } from "electron";
@@ -12,6 +13,7 @@ import type {
   ChromeRecordingSession,
 } from "./types";
 import type { Tab } from "../Tab";
+import type { Window } from "../Window";
 
 // Injected script that generates selectors for elements
 const SELECTOR_GENERATOR_SCRIPT = `
@@ -127,6 +129,20 @@ const SELECTOR_GENERATOR_SCRIPT = `
 export class ChromeRecorder {
   private sessions: Map<string, ChromeRecordingSession> = new Map();
   private debuggerAttached: Map<string, boolean> = new Map();
+  private window: Window | null = null;
+  private recordedTabs: Map<string, Set<string>> = new Map(); // sessionId -> Set of tabIds
+  private tabCreationListeners: Map<string, () => void> = new Map(); // sessionId -> cleanup function
+
+  constructor(window?: Window) {
+    this.window = window || null;
+  }
+
+  /**
+   * Set window instance (needed for multi-tab recording)
+   */
+  setWindow(window: Window): void {
+    this.window = window;
+  }
 
   /**
    * Start recording on a tab
@@ -149,10 +165,11 @@ export class ChromeRecorder {
     };
 
     this.sessions.set(sessionId, session);
+    this.recordedTabs.set(sessionId, new Set([tab.id]));
 
     try {
       // Attach debugger
-      await this.attachDebugger(webContents, sessionId);
+      await this.attachDebugger(webContents, sessionId, tab.id);
 
       try {
         await this.sendDebuggerCommand(webContents, "Page.enable");
@@ -188,12 +205,18 @@ export class ChromeRecorder {
       }
 
       // Set up CDP event listeners
-      this.setupEventListeners(webContents, sessionId);
+      this.setupEventListeners(webContents, sessionId, tab.id);
+
+      // Set up multi-tab tracking
+      if (this.window) {
+        this.setupMultiTabTracking(sessionId);
+      }
 
       return sessionId;
     } catch (error) {
       console.error("Error starting recording:", error);
       this.sessions.delete(sessionId);
+      this.recordedTabs.delete(sessionId);
       throw error;
     }
   }
@@ -209,14 +232,27 @@ export class ChromeRecorder {
 
     session.isRecording = false;
 
-    // Detach debugger
-    const webContents = this.getWebContentsByTabId(session.tabId);
-    if (webContents) {
-      await this.detachDebugger(webContents, sessionId);
+    // Clean up multi-tab tracking
+    const cleanupFn = this.tabCreationListeners.get(sessionId);
+    if (cleanupFn) {
+      cleanupFn();
+      this.tabCreationListeners.delete(sessionId);
+    }
+
+    // Detach debugger from all recorded tabs
+    const recordedTabIds = this.recordedTabs.get(sessionId);
+    if (recordedTabIds && this.window) {
+      for (const tabId of recordedTabIds) {
+        const tab = this.window.getTab(tabId);
+        if (tab) {
+          await this.detachDebugger(tab.webContents, sessionId, tabId);
+        }
+      }
     }
 
     const recording = session.recording;
     this.sessions.delete(sessionId);
+    this.recordedTabs.delete(sessionId);
 
     return recording;
   }
@@ -270,11 +306,13 @@ export class ChromeRecorder {
 
   private async attachDebugger(
     webContents: WebContents,
-    sessionId: string
+    sessionId: string,
+    tabId: string
   ): Promise<void> {
     try {
       await webContents.debugger.attach("1.3");
-      this.debuggerAttached.set(sessionId, true);
+      this.debuggerAttached.set(`${sessionId}:${tabId}`, true);
+      console.log(`Debugger attached to tab ${tabId} for session ${sessionId}`);
     } catch (error) {
       throw new Error(
         `Failed to attach debugger: ${error instanceof Error ? error.message : String(error)}`
@@ -284,13 +322,15 @@ export class ChromeRecorder {
 
   private async detachDebugger(
     webContents: WebContents,
-    sessionId: string
+    sessionId: string,
+    tabId: string
   ): Promise<void> {
     try {
       if (webContents.debugger.isAttached()) {
         webContents.debugger.detach();
       }
-      this.debuggerAttached.delete(sessionId);
+      this.debuggerAttached.delete(`${sessionId}:${tabId}`);
+      console.log(`Debugger detached from tab ${tabId} for session ${sessionId}`);
     } catch (error) {
       console.error("Error detaching debugger:", error);
     }
@@ -346,7 +386,8 @@ export class ChromeRecorder {
 
   private setupEventListeners(
     webContents: WebContents,
-    sessionId: string
+    sessionId: string,
+    tabId: string
   ): void {
     // Listen for navigation events
     webContents.debugger.on("message", async (_event, method, params) => {
@@ -373,12 +414,100 @@ export class ChromeRecorder {
       }
     });
 
-    this.setupPageEventListeners(webContents, sessionId);
+    this.setupPageEventListeners(webContents, sessionId, tabId);
+  }
+
+  /**
+   * Set up tracking for new tabs created during recording
+   */
+  private setupMultiTabTracking(sessionId: string): void {
+    if (!this.window) return;
+
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    console.log(`Setting up multi-tab tracking for session ${sessionId}`);
+
+    // Store the current tab count
+    const initialTabCount = this.window.tabCount;
+
+    // Poll for new tabs (Electron doesn't have a direct event for tab creation)
+    const checkInterval = setInterval(async () => {
+      const session = this.sessions.get(sessionId);
+      if (!session || !session.isRecording || !this.window) {
+        clearInterval(checkInterval);
+        return;
+      }
+
+      // Check if new tabs were created
+      const currentTabs = this.window.allTabs;
+      const recordedTabIds = this.recordedTabs.get(sessionId);
+
+      if (recordedTabIds) {
+        for (const tab of currentTabs) {
+          if (!recordedTabIds.has(tab.id)) {
+            // New tab detected!
+            console.log(`New tab detected during recording: ${tab.id}`);
+            await this.attachToNewTab(sessionId, tab);
+            recordedTabIds.add(tab.id);
+
+            // Add CREATE_TAB step
+            session.recording.steps.push({
+              type: "navigate",
+              url: tab.url || "about:blank",
+              assertedEvents: [
+                {
+                  type: "navigation",
+                  url: tab.url || "about:blank",
+                },
+              ],
+            });
+          }
+        }
+      }
+    }, 500); // Check every 500ms
+
+    // Store cleanup function
+    this.tabCreationListeners.set(sessionId, () => {
+      clearInterval(checkInterval);
+      console.log(`Cleaned up multi-tab tracking for session ${sessionId}`);
+    });
+  }
+
+  /**
+   * Attach recording to a new tab that was created during recording
+   */
+  private async attachToNewTab(sessionId: string, tab: Tab): Promise<void> {
+    try {
+      const webContents = tab.webContents;
+
+      // Attach debugger
+      await this.attachDebugger(webContents, sessionId, tab.id);
+
+      try {
+        await this.sendDebuggerCommand(webContents, "Page.enable");
+        await this.sendDebuggerCommand(webContents, "Runtime.enable");
+        await this.sendDebuggerCommand(webContents, "DOM.enable");
+      } catch (error) {
+        console.warn(`Error enabling CDP domains on new tab ${tab.id}:`, error);
+      }
+
+      // Inject helper script
+      await this.injectHelperScript(webContents);
+
+      // Set up event listeners
+      this.setupEventListeners(webContents, sessionId, tab.id);
+
+      console.log(`Successfully attached recording to new tab ${tab.id}`);
+    } catch (error) {
+      console.error(`Error attaching to new tab ${tab.id}:`, error);
+    }
   }
 
   private async setupPageEventListeners(
     webContents: WebContents,
-    sessionId: string
+    sessionId: string,
+    tabId: string
   ): Promise<void> {
     try {
       await webContents.executeJavaScript(`
@@ -488,14 +617,29 @@ export class ChromeRecorder {
    * Cleanup all sessions and detach debuggers
    */
   async cleanup(): Promise<void> {
-    for (const [sessionId, session] of this.sessions.entries()) {
-      const webContents = this.getWebContentsByTabId(session.tabId);
-      if (webContents) {
-        await this.detachDebugger(webContents, sessionId);
+    // Clean up all tab tracking
+    for (const [sessionId, cleanupFn] of this.tabCreationListeners.entries()) {
+      cleanupFn();
+    }
+    this.tabCreationListeners.clear();
+
+    // Detach all debuggers
+    if (this.window) {
+      for (const [sessionId, session] of this.sessions.entries()) {
+        const recordedTabIds = this.recordedTabs.get(sessionId);
+        if (recordedTabIds) {
+          for (const tabId of recordedTabIds) {
+            const tab = this.window.getTab(tabId);
+            if (tab) {
+              await this.detachDebugger(tab.webContents, sessionId, tabId);
+            }
+          }
+        }
       }
     }
 
     this.sessions.clear();
+    this.recordedTabs.clear();
     this.debuggerAttached.clear();
   }
 }
